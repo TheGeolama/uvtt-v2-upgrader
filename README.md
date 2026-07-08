@@ -53,9 +53,9 @@ campaign_dungeon.uvtt2/
 ### Architectural Benefits
 
 * **`manifest.json`:** Acts as the single source of truth for file metadata, versioning, and internal asset routing maps.
-* 
+
 * **`map.json`:** A clean, text-only data payload containing all geometry, flattened arrays, lighting nodes, and events.
-* 
+ 
 * **`preview.webp`:** A highly compressed, low-resolution thumbnail placed at the root level. When a Gamemaster opens their map library, the client only fetches this tiny thumbnail.
 
 * **`assets/`:** A dedicated directory that bundles raw binary files and keeps the data cleanly separated from the JSON.
