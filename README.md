@@ -60,7 +60,7 @@ campaign_dungeon.uvtt2/
 
 * **`assets/`:** A dedicated directory that bundles raw binary files and keeps the data cleanly separated from the JSON.
 
-* **Streamable Parsing:** Go's native `archive/zip` package allows backend APIs to read the central directory without loading the entire archive into memory. An API can extract the JSON to chunk bounding boxes while parallelizing the extraction of high-resolution WebP files.
+* **Streamable Parsing:** JavaScript's zip.js library allowd backend APIs to read the central directory without loading the entire archive into memory. An API can extract the JSON to chunk bounding boxes while parallelizing the extraction of high-resolution WebP files.
 
 * **WebGL Culling:** Consistent clockwise winding ensures closed geometric shapes can leverage hardware-accelerated backface culling to skip drawing hidden sides.
 
