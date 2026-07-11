@@ -4,7 +4,7 @@
  * and normalizes the old geometry into the UVTT v2 SVG-style format.
  */
 
-function base64ToBlob(base64, mimeType = 'image/png') {
+function base64ToBlob(base64, mimeType = 'image/webp') {
     // Strip potential data URI prefix to prevent InvalidCharacterError
     if (typeof base64 === 'string' && base64.includes(',')) {
         base64 = base64.split(',')[1];
@@ -29,111 +29,140 @@ function base64ToBlob(base64, mimeType = 'image/png') {
 
 /**
  * Snaps a given coordinate to an existing vertex if it falls within the tolerance radius.
- * This mathematically seals corners to prevent VTT light-leaks.
+ * This mathematically seals corners to prevent VTT light leaks.
  */
-function snapCoordinates(x, y, registry, tolerance = 0.05) {
+function snapCoordinates(x, y, registry, tolerance) {
     for (const pt of registry) {
-        const dx = pt.x - x;
-        const dy = pt.y - y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        if (distance <= tolerance) {
-            return { x: pt.x, y: pt.y }; // Snap to the existing point
+        if (Math.abs(pt.x - x) <= tolerance && Math.abs(pt.y - y) <= tolerance) {
+            return { x: pt.x, y: pt.y };
         }
     }
-    
-    // If no nearby point is found, register this as a new anchor point
-    const newPt = { x, y };
-    registry.push(newPt);
-    return newPt;
+    registry.push({ x, y });
+    return { x, y };
 }
 
 export async function upgradeLegacyMap(file) {
-    const fileText = await file.text();
-    const legacyData = JSON.parse(fileText);
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
 
-    // Safety check for missing or improperly formatted image payloads
-    if (!legacyData.image) throw new Error("Map file missing required 'image' Base64 data.");
+        reader.onload = async (e) => {
+            try {
+                const legacyData = JSON.parse(e.target.result);
 
-    const imageBlob = base64ToBlob(legacyData.image, 'image/png');
-    const imageObjectUrl = URL.createObjectURL(imageBlob);
+                // 1. Memory-Safe Image Extraction
+                const base64Data = legacyData.image;
+                const imageBlob = base64ToBlob(base64Data, "image/webp");
+                const imageUrl = URL.createObjectURL(imageBlob);
 
-    // --- Vertex Snapping Initialization ---
-    const vertexRegistry = []; 
-    const SNAP_TOLERANCE = 0.05; // Map units
+                const upgradedWalls = [];
+                const upgradedPortals = [];
+                const upgradedLights = [];
+                const vertexRegistry = [];
+                const SNAP_TOLERANCE = 0.05;
 
-    // --- 1. Translate Standard Walls ---
-    const upgradedWalls = [];
-    if (legacyData.line_of_sight) {
-        legacyData.line_of_sight.forEach((wallSegment, index) => {
-            if (wallSegment.length < 2) return;
+                // 2. Process Walls with Vertex Snapping
+                if (legacyData.line_of_sight) {
+                    legacyData.line_of_sight.forEach((losArray, index) => {
+                        if (losArray.length < 2) return;
+                        const v2Path = losArray.map((point, ptIndex) => {
+                            const px = point.x !== undefined ? point.x : point[0];
+                            const py = point.y !== undefined ? point.y : point[1];
+                            const snapped = snapCoordinates(px, py, vertexRegistry, SNAP_TOLERANCE);
+                            return { type: ptIndex === 0 ? "move" : "line", x: snapped.x, y: snapped.y };
+                        });
 
-            const v2Path = wallSegment.map((point, ptIndex) => {
-                const px = point.x !== undefined ? point.x : point[0];
-                const py = point.y !== undefined ? point.y : point[1];
-                
-                // Snap coordinates to seal geometry
-                const snapped = snapCoordinates(px, py, vertexRegistry, SNAP_TOLERANCE);
+                        upgradedWalls.push({
+                            id: `wall_legacy_${index}_${Date.now()}`,
+                            type: "standard",
+                            height: { bottom: 0.0, top: 10.0 },
+                            path: v2Path,
+                            directional_blocks: {
+                                left_to_right: ["light", "sight", "movement"],
+                                right_to_left: ["light", "sight", "movement"]
+                            },
+                            states: { ethereal: false }
+                        });
+                    });
+                }
 
-                return { type: ptIndex === 0 ? "move" : "line", x: snapped.x, y: snapped.y };
-            });
+                // 3. Process Portals
+                if (legacyData.portals) {
+                    legacyData.portals.forEach((portal, index) => {
+                        if (!portal.bounds || portal.bounds.length < 2) return;
+                        const v2Path = portal.bounds.map((point, ptIndex) => {
+                            const px = point.x !== undefined ? point.x : point[0];
+                            const py = point.y !== undefined ? point.y : point[1];
+                            const snapped = snapCoordinates(px, py, vertexRegistry, SNAP_TOLERANCE);
+                            return { type: ptIndex === 0 ? "move" : "line", x: snapped.x, y: snapped.y };
+                        });
 
-            upgradedWalls.push({
-                id: `wall_legacy_${index}`,
-                type: "standard",
-                height: { bottom: 0.0, top: 10.0 },
-                path: v2Path
-            });
-        });
-    }
+                        upgradedPortals.push({
+                            id: `portal_legacy_${index}_${Date.now()}`,
+                            type: portal.closed ? "door" : "window",
+                            sub_type: "standard",
+                            path: v2Path
+                        });
+                    });
+                }
 
-    // --- 2. Translate Portals (Doors & Windows) ---
-    const upgradedPortals = [];
-    if (legacyData.portals) {
-        legacyData.portals.forEach((portal, index) => {
-            if (!portal.bounds || portal.bounds.length < 2) return;
+                // 4. Process Lights
+                if (legacyData.lights) {
+                    legacyData.lights.forEach((light, index) => {
+                        upgradedLights.push({
+                            id: `light_legacy_${index}_${Date.now()}`,
+                            type: "point",
+                            position: { x: light.position.x, y: light.position.y, z: 5.0 },
+                            radius: { bright: light.range / 2, dim: light.range },
+                            color: light.color.length > 7 ? `#${light.color.substring(0, 6)}` : light.color,
+                            decay: "inverse_square",
+                            animation: { type: "none", speed: 1.0, intensity_variance: 0.1 }
+                        });
+                    });
+                }
 
-            const v2Path = portal.bounds.map((point, ptIndex) => {
-                const px = point.x !== undefined ? point.x : point[0];
-                const py = point.y !== undefined ? point.y : point[1];
-                
-                // Snap coordinates so doors physically lock into surrounding walls
-                const snapped = snapCoordinates(px, py, vertexRegistry, SNAP_TOLERANCE);
+                // 5. Build Final V2 Manifest
+                const upgradedManifest = {
+                    format_version: "2.0.0",
+                    uvtt_version: "2.0.0",
+                    campaign_name: file.name.replace(/\.[^/.]+$/, ""),
+                    author: "Imported via UVTT v2 Upgrader",
+                    license: "Proprietary",
+                    hardware_profile: {
+                        minimum_pipeline: "WebGL2",
+                        recommended_pipeline: "WebGPU",
+                        requires_compute_shaders: false
+                    },
+                    resolution: {
+                        map_origin: { x: legacyData.resolution?.map_origin?.x || 0, y: legacyData.resolution?.map_origin?.y || 0 },
+                        grid_size: { x: legacyData.resolution?.pixels_per_grid || 70, y: legacyData.resolution?.pixels_per_grid || 70 },
+                        units_per_grid: 5,
+                        unit_name: "ft",
+                        topology: { type: "square", orientation: "flat_top", offset: "odd_row", isometric_ratio: 0.5 }
+                    },
+                    geometry: {
+                        walls: upgradedWalls,
+                        portals: upgradedPortals,
+                        overhead: []
+                    },
+                    lights: upgradedLights,
+                    
+                    // --- NEW V2 ENTITIES INITIALIZED HERE ---
+                    events: [],
+                    audio: [],
+                    landing_zones: [],
+                    emitters: [], 
+                    music: { uri: "", volume: 1.0, crossfade_duration: 2.0 }, 
+                    ambience: { uri: "", volume: 1.0, crossfade_duration: 2.0 } 
+                };
 
-                return { type: ptIndex === 0 ? "move" : "line", x: snapped.x, y: snapped.y };
-            });
+                resolve({ imageUrl, imageBlob, manifest: upgradedManifest });
 
-            const portalType = portal.closed ? "door" : "window";
+            } catch (err) {
+                reject(new Error("Failed to parse V1 JSON. File may be corrupted."));
+            }
+        };
 
-            upgradedPortals.push({
-                id: `portal_legacy_${index}`,
-                type: portalType,
-                path: v2Path
-            });
-        });
-    }
-
-    const upgradedManifest = {
-        format_version: "2.0.0",
-        resolution: {
-            map_origin: { x: legacyData.resolution?.map_origin?.x || 0, y: legacyData.resolution?.map_origin?.y || 0 },
-            grid_size: { x: legacyData.resolution?.pixels_per_grid || 70, y: legacyData.resolution?.pixels_per_grid || 70 },
-            units_per_grid: 5,
-            unit_name: "ft",
-            topology: { type: "square", orientation: "flat_top", offset: "none", isometric_ratio: null }
-        },
-        geometry: {
-            walls: upgradedWalls,
-            portals: upgradedPortals,
-            overhead: []
-        },
-        lights: [],
-        events: []
-    };
-
-    return {
-        imageUrl: imageObjectUrl,
-        imageBlob: imageBlob,
-        manifest: upgradedManifest
-    };
+        reader.onerror = () => reject(new Error("File read error."));
+        reader.readAsText(file);
+    });
 }

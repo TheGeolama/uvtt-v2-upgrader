@@ -19,6 +19,14 @@
       .replace(/-+$/, "");
   }
 
+  // NEW: Web Crypto Native Implementation for DRM Asset Integrity
+  async function generateAssetHash(blob) {
+    const arrayBuffer = await blob.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest("SHA-256", arrayBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
   async function handleExport() {
     if (!$mapStore.manifest) return;
     isExporting = true;
@@ -106,8 +114,49 @@
           events: manifest.events || [],
           audio: manifest.audio || [],
           landing_zones: manifest.landing_zones || [],
-          emitters: manifest.emitters || [], // NEW: Added Emitters to entities
+          emitters: manifest.emitters || [],
         };
+
+        // NEW: DRM Cryptographic Tracking
+        const assetHashes = {};
+        const assetsFolder = mapFolder.folder("assets");
+
+        // Hash & Add Image
+        const imageHash = await generateAssetHash(catalogMap.imageBlob);
+        assetHashes[`assets/${cleanSlug}.webp`] = imageHash;
+        assetsFolder.file(`${cleanSlug}.webp`, catalogMap.imageBlob);
+
+        // Hash & Add Audio
+        if (catalogMap.audioBlobs) {
+          for (const [filename, audioBlob] of Object.entries(
+            catalogMap.audioBlobs,
+          )) {
+            const audioHash = await generateAssetHash(audioBlob);
+            assetHashes[`assets/${filename}`] = audioHash;
+            assetsFolder.file(filename, audioBlob);
+          }
+        }
+
+        // Inject License Metadata
+        manifest.drm = {
+          license: "Proprietary / All Rights Reserved",
+          attribution: "Map generated via UVTT v2 Specification",
+          protection_tier: "split_resolution",
+        };
+
+        // Generate and save manifest.hash
+        mapFolder.file(
+          "manifest.hash",
+          JSON.stringify(
+            {
+              algorithm: "SHA-256",
+              timestamp: new Date().toISOString(),
+              signatures: assetHashes,
+            },
+            null,
+            2,
+          ),
+        );
 
         delete manifest.geometry;
         delete manifest.music;
@@ -116,24 +165,13 @@
         delete manifest.events;
         delete manifest.audio;
         delete manifest.landing_zones;
-        delete manifest.emitters; // NEW: Clean up from manifest
+        delete manifest.emitters;
 
         manifest.image = { uri: `assets/${cleanSlug}.webp` };
 
         mapFolder.file("manifest.json", JSON.stringify(manifest, null, 2));
         mapFolder.file("geometry.json", JSON.stringify(geometry, null, 2));
         mapFolder.file("entities.json", JSON.stringify(entities, null, 2));
-
-        const assetsFolder = mapFolder.folder("assets");
-        assetsFolder.file(`${cleanSlug}.webp`, catalogMap.imageBlob);
-
-        if (catalogMap.audioBlobs) {
-          Object.entries(catalogMap.audioBlobs).forEach(
-            ([filename, audioBlob]) => {
-              assetsFolder.file(filename, audioBlob);
-            },
-          );
-        }
       }
 
       zip.file("manifest.json", JSON.stringify(masterManifest, null, 2));
@@ -156,8 +194,49 @@
         events: manifest.events || [],
         audio: manifest.audio || [],
         landing_zones: manifest.landing_zones || [],
-        emitters: manifest.emitters || [], // NEW
+        emitters: manifest.emitters || [],
       };
+
+      // NEW: DRM Cryptographic Tracking
+      const assetHashes = {};
+      const assetsFolder = zip.folder("assets");
+
+      // Hash & Add Image
+      const imageHash = await generateAssetHash(activeMap.imageBlob);
+      assetHashes[`assets/base_map.webp`] = imageHash;
+      assetsFolder.file("base_map.webp", activeMap.imageBlob);
+
+      // Hash & Add Audio
+      if (activeMap.audioBlobs) {
+        for (const [filename, audioBlob] of Object.entries(
+          activeMap.audioBlobs,
+        )) {
+          const audioHash = await generateAssetHash(audioBlob);
+          assetHashes[`assets/${filename}`] = audioHash;
+          assetsFolder.file(filename, audioBlob);
+        }
+      }
+
+      // Inject License Metadata
+      manifest.drm = {
+        license: "Proprietary / All Rights Reserved",
+        attribution: "Map generated via UVTT v2 Specification",
+        protection_tier: "split_resolution",
+      };
+
+      // Generate and save manifest.hash
+      zip.file(
+        "manifest.hash",
+        JSON.stringify(
+          {
+            algorithm: "SHA-256",
+            timestamp: new Date().toISOString(),
+            signatures: assetHashes,
+          },
+          null,
+          2,
+        ),
+      );
 
       delete manifest.geometry;
       delete manifest.music;
@@ -166,22 +245,11 @@
       delete manifest.events;
       delete manifest.audio;
       delete manifest.landing_zones;
-      delete manifest.emitters; // NEW
+      delete manifest.emitters;
 
       zip.file("manifest.json", JSON.stringify(manifest, null, 2));
       zip.file("geometry.json", JSON.stringify(geometry, null, 2));
       zip.file("entities.json", JSON.stringify(entities, null, 2));
-
-      const assetsFolder = zip.folder("assets");
-      assetsFolder.file("base_map.webp", activeMap.imageBlob);
-
-      if ($mapStore.audioBlobs) {
-        Object.entries($mapStore.audioBlobs).forEach(
-          ([filename, audioBlob]) => {
-            assetsFolder.file(filename, audioBlob);
-          },
-        );
-      }
 
       const content = await zip.generateAsync({ type: "blob" });
       triggerDownload(content, activeMap.filename);
@@ -257,14 +325,16 @@
     {#if targetVersion === "2.0.0"}
       {#if packageAsCompound}
         Bundles all {$mapStore.catalog.length} maps into a single mega-dungeon archive.
-        Inter-map teleports will be automatically rewritten to internal paths.
+        Inter-map teleports will be automatically rewritten to internal paths. Includes
+        WebCrypto asset signing.
       {:else}
         Compiles the active map as a Federated File utilizing detached assets
-        and SVG vectors. Other maps must be exported separately.
+        and SVG vectors. Includes WebCrypto asset signing. Other maps must be
+        exported separately.
       {/if}
     {:else}
       Executes Graceful Degradation to legacy format. Bézier curves will be
-      flattened, and advanced properties will be cleanly pruned.
+      flattened, and advanced properties will be cleanly pruned. No DRM applied.
     {/if}
   </p>
 

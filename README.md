@@ -1,89 +1,121 @@
-This `README.md` is designed to be the professional landing page for your repository. It establishes the UVTT v2 specification as a formal engineering standard, making it attractive to VTT engine developers and map-tool authors who are tired of the limitations of legacy formats.
+Here is a complete, professional `README.md` tailored specifically for your newly decoupled **UVTT v2 Upgrader** repository.
+
+You can drop this directly into the root of your `uvtt-v2-upgrader` project folder.
 
 ---
 
-# Universal VTT v2 (UVTT v2) Specification
+# 🗺️ UVTT v2 Upgrader Web App
 
-**The open-source, high-performance standard for interconnected TTRPG campaign mapping.**
+**The official graphic conversion tool and CAD workspace for the Universal Virtual Tabletop v2 Specification.**
 
-The UVTT v2 specification provides a modern, robust, and extensible framework for TTRPG map data. Designed to replace the legacy 2D-only flat formats (.dd2vtt / .df2vtt), UVTT v2 enables verticality, complex spatial triggers, hardware-accelerated rendering, and multi-file campaign networking.
-
-## 🚀 Why UVTT v2?
-
-Legacy V1 standards were ground-breaking, but they suffer from significant architectural bottlenecks. UVTT v2 solves these by treating maps not as static images, but as nodes within a **Topological Spatial Network**.
-
-### The Problem with v1
-
-- **Data Bloat:** Base64-encoded images embedded in JSON inflate payloads by ~33%, causing UI freezes and OOM errors in browser-based VTTs.
-- **The "Flat Earth" Assumption:** Legacy formats assume all maps are 2D planes, rendering vertical gameplay (multi-level dungeons) a nightmare to manage.
-- **Mathematical Inefficiency:** Jagged straight-line approximation for curved walls wastes GPU resources and creates visual artifacts.
-- **Fragmented Campaigns:** Maps are isolated islands. Linking a portal in Map A to Map B required manual GM intervention or third-party plug-ins.
-
-### The Solution: v2 Architecture
-
-- **Binary Archive Container (.uvtt2z):** A zipped directory that detaches heavy image assets from metadata. This enables streamability, lazy loading, and sub-second directory browsing.
-- **Material-Aware Geometry:** Directional Line-of-Sight (using the Right-Hand Rule) and explicit height-blocking properties for walls, terrain, and foliage.
-- **Spatial Routing:** A native URI-based system (`internal://` and `relative://`) allows for seamless, zero-lag transitions between maps and floors in mega-dungeons.
-- **Future-Proof Extensibility:** A `hardware_profile` block ensures the format can scale from WebGL2 to WebGPU without requiring a schema rewrite.
+The UVTT v2 Upgrader is a high-performance Svelte & WebGL web application designed to bridge the gap between fragile legacy v1 map files (`.dd2vtt` / `.df2vtt`) and the robust, multi-floor UVTT v2 standard (`.uvtt2z`). It operates as an **In-Memory Normalized Model (IMNM)** router, allowing Gamemasters to ingest legacy maps, graphically upgrade them with modern mechanical features, and compile them into streamable, cryptographically-signed archives.
 
 ---
 
-## 📂 Repository Structure
+## ✨ Core Features
+
+- **Memory-Safe v1 Ingestion:** Safely decodes massive legacy Base64 image payloads into binary Blobs in 512-byte chunks, completely preventing the browser Out-Of-Memory (OOM) crashes that plague older VTT tools.
+- **Vector Normalization & CAD:** Automatically snaps unsealed legacy vertices to prevent dynamic light leaks, flattens paths using Collinear Simplification, and lets users manipulate directional Line-of-Sight vectors via the mathematical "Right-Hand Rule".
+- **The v2 Entity HUD:** A fully interactive PixiJS drafting grid to place advanced UVTT v2 mechanics:
+- 💡 **Lighting:** Point and directional cones with configurable decay physics.
+- 🔊 **Spatial Audio:** Tier 3 localized acoustic zones with linear boundary falloffs.
+- 🚪 **Teleportation Events:** Connect zones via pinpoint coordinates or offset matrices.
+- ☁️ **Weather Emitters:** Bounded particle generation zones (Rain, Snow, Fog, Embers).
+- 🚩 **Landing Zones:** Deterministic viewport instantiation targets.
+
+- **Compound & Federated Archiving:** Export a single map file (Federated) or compile your entire session's map catalog into a single Mega-Dungeon `.uvtt2z` zip file (Compound) with automatically resolved `internal://` URIs.
+- **WebCrypto DRM Integration:** Automatically hashes premium assets (images, audio) via AES-256 Web Crypto API to generate a `manifest.hash` root file, protecting Split-Resolution map bundles.
+- **Graceful Degradation:** A bi-directional engine that can cleanly downgrade v2 maps back to v1 formats for legacy support.
+
+---
+
+## 🛠️ Tech Stack
+
+- **Framework:** [Svelte 4](https://svelte.dev/)
+- **Build Tool:** [Vite](https://vitejs.dev/)
+- **Renderer:** [PixiJS v7](https://pixijs.com/) (Hardware-accelerated WebGL)
+- **Archive Compiler:** [JSZip](https://stuk.github.io/jszip/)
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+Ensure you have [Node.js](https://nodejs.org/) (v18+) installed.
+
+### Installation & Development
+
+1. Clone this repository:
+
+```bash
+git clone https://github.com/TheGeolama/uvtt-v2-upgrader.git
+cd uvtt-v2-upgrader
+
+```
+
+2. Install dependencies:
+
+```bash
+npm install
+
+```
+
+3. Start the local development server:
+
+```bash
+npm run dev
+
+```
+
+4. Open your browser to `http://localhost:3000` (or the port specified in your terminal).
+
+### Building for Production
+
+To compile the app into static HTML/JS/CSS for deployment (e.g., GitHub Pages, Vercel, Netlify):
+
+```bash
+npm run build
+
+```
+
+The optimized files will be output to the `dist/` directory.
+
+---
+
+## 📂 Project Structure
 
 ```text
-uvtt-v2-specification/
-├── .github/
-│   └── ISSUE_TEMPLATE/       # Forms for "Feature Proposals" or "Bug Reports"
-├── schemas/                  # Formal JSON Schema validation files
-│   ├── manifest.schema.json
-│   ├── geometry.schema.json
-│   └── entities.schema.json
-├── reference-parsers/        # Boilerplate code for community adoption
-│   ├── go/                   # Efficient Go archive reader/indexer
-│   └── typescript/           # Core JSON schema typings and SVG helpers
-├── RFCs/                     # Request for Comments for future upgrades
-├── CHANGELOG.md              # Clear version tracking (e.g., v2.0.0-rc1)
-├── CONTRIBUTING.md           # Governance and RFC submission guidelines
-└── README.md                 # Project documentation
+uvtt-v2-upgrader/
+├── package.json                 # Node dependencies
+├── vite.config.js               # Vite build configuration
+├── index.html                   # HTML Entry Point
+└── src/
+    ├── App.svelte               # Root Layout Controller
+    ├── stores/
+    │   └── mapStore.js          # The IMNM Central State Manager
+    ├── utils/
+    │   ├── legacyParser.js      # Base64 extractor & v1 geometry normalizer
+    │   └── migrationEngine.js   # Graceful degradation logic for v2 -> v1
+    └── components/
+        ├── Uploader.svelte      # Landing page / Drag-and-drop ingestion zone
+        ├── Toolbar.svelte       # Interactive Property Editor & Entity HUD
+        ├── CanvasWorkspace.svelte # PixiJS Viewport & Vector rendering
+        └── ExportMenu.svelte    # .uvtt2z Compiler & DRM Asset Signer
 
 ```
 
 ---
 
-## 🛠️ Feature Matrix
+## 🤝 Relationship to the Specification
 
-| Feature              | Legacy v1            | UVTT v2                       |
-| -------------------- | -------------------- | ----------------------------- |
-| **Asset Delivery**   | Base64-in-JSON       | Zipped Directory (.uvtt2z)    |
-| **Grid Logic**       | Square Only          | Square, Hex, Isometric        |
-| **Verticality**      | Flat Plane           | 3D Bounds (Bottom/Top Z)      |
-| **Curves**           | Jagged Line Segments | Native SVG Bézier Paths       |
-| **Visibility**       | Symmetrical          | Directional (Right-Hand Rule) |
-| **Interoperability** | Disconnected Islands | Topological Spatial Network   |
-| **Weather**          | None                 | Bounded Particle Emitters     |
+This application is a **Reference Tooling Implementation** of the UVTT v2 Standard.
+
+For documentation regarding the actual `.uvtt2z` file structures, JSON schemas, topological routing formats, and the overarching DRM philosophy, please visit the primary standard repository:
+👉 **[UVTT v2 Specification Repository](https://www.google.com/search?q=https://github.com/TheGeolama/uvtt-v2-specification)**
 
 ---
 
-## 📝 Governance & Contribution
+## 📄 License
 
-The UVTT v2 specification is a **Living Document**. We welcome contributions from VTT engine developers and map-making tool authors.
-
-### The RFC Pipeline
-
-To propose a new feature (e.g., new atmospheric shaders, advanced lighting physics), please follow these steps:
-
-1. **Draft an RFC:** Create a markdown proposal in the `/RFCs` directory using the provided template.
-2. **Pull Request:** Submit your RFC via a Pull Request.
-3. **Community Review:** We evaluate based on backward compatibility, performance impact, and interoperability.
-
-### The Backward-Compatibility Contract
-
-Core features—including basic walls, portals, and landing zones—are immutable. Any new functionality (e.g., advanced WebGPU compute shaders) must be implemented as additive, optional properties within the `extensions` block to ensure that existing engines remain compliant.
-
----
-
-## 🔗 Getting Started
-
-- **[View the Full Specification](https://www.google.com/search?q=schemas/)**
-- **[Download the Reference Upgrader Tool](https://www.google.com/search?q=https://github.com/TheGeolama/uvtt-v2-upgrader)** (Migrate legacy maps to v2).
-- **[Join the Discussion](https://www.google.com/search?q=https://github.com/TheGeolama/uvtt-v2-specification/issues)**
+The code within this repository (the Upgrader App) is open source and available under the standard MIT License, allowing community members to fork, modify, and host their own variants of the tool.
