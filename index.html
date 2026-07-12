@@ -1,12 +1,140 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>UVTT v2 Upgrader</title>
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  
+  <!-- Responsive Viewport Meta Tag for Mobile & Tablet Support -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  
+  <title>UVTT v2 Upgrader & Level Design Engine</title>
+  
+  <!-- Primary SEO Metadata -->
+  <meta name="description" content="A high-performance, WebGPU-accelerated Svelte & PixiJS v8 level editor to upgrade legacy Universal VTT maps (.dd2vtt) into streamable, secure .uvtt2z campaigns." />
+  <meta name="keywords" content="VTT, Virtual Tabletop, UVTT v2, Map Editor, Dungeondraft, Foundry VTT, Battlemap, Cartography, WebGPU, WebGL, Svelte" />
+  <meta name="theme-color" content="#0f172a" /> <!-- Matching deep slate/dark mode tailwind slate-900 -->
+
+  <!-- Open Graph / Facebook / Discord Webhook Rich Embeds -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://thegeolama.github.io/uvtt-v2-upgrader/" />
+  <meta property="og:title" content="UVTT v2 Upgrader & Level Design Engine" />
+  <meta property="og:description" content="Upgrade, edit, and secure your TTRPG battlemaps with WebGPU-accelerated vector rendering, directional wall snapping, and localized audio triggers." />
+  <meta property="og:image" content="/uvtt_v2_launch_header.jpg" />
+
+  <!-- Twitter Card Metadata -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:url" content="https://thegeolama.github.io/uvtt-v2-upgrader/" />
+  <meta name="twitter:title" content="UVTT v2 Upgrader & Level Design Engine" />
+  <meta name="twitter:description" content="Upgrade, edit, and secure your TTRPG battlemaps with WebGPU-accelerated vector rendering, directional wall snapping, and localized audio triggers." />
+  <meta name="twitter:image" content="/uvtt_v2_launch_header.jpg" />
+
+  <!-- Native SVG Favicon (Perfectly scales for High-DPI screens and Dark/Light Mode tabs) -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  
+  <!-- Fallback Legacy Favicon Link for older clients -->
+  <link rel="alternate icon" type="image/x-icon" href="/favicon.ico" />
+  
+  <!-- Web App Manifest for Progressive Web App (PWA) Support -->
+  <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
+  
+  <!-- Safe Apple Touch Icon configuration -->
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+  <!-- Preconnect to speed up resource loading -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+  <!-- Clean, embedded structural CSS to guarantee smooth, hardware-accelerated viewport layouts before Svelte mounts -->
+  <style>
+    /* Reset and layout baseline to prevent elastic scrolling and layout shift */
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #0f172a; /* Base dark color to avoid white flash on load */
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Full-screen viewport container with fixed dimensions */
+    #app {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    /* Fallback loading screen styling - vanishes instantly once Svelte bootstraps */
+    .initial-engine-loader {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+      z-index: 9999;
+      transition: opacity 0.3s ease-in-out;
+    }
+
+    .loader-spinner {
+      width: 50px;
+      height: 50px;
+      border: 3px solid rgba(0, 240, 255, 0.1);
+      border-top: 3px solid #00f0ff; /* Neon cyan */
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+    }
+
+    .loader-text {
+      font-size: 0.95rem;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      color: #38bdf8;
+      text-transform: uppercase;
+      text-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Master Mounting Container for our Svelte Application -->
+  <main id="app">
+    <!-- Static inline loading screen to enhance perceived performance while the Svelte & WebGPU bundle parses -->
+    <div class="initial-engine-loader" id="loading-screen">
+      <div class="loader-spinner"></div>
+      <div class="loader-text">Initializing WebGPU Pipeline...</div>
+    </div>
+  </main>
+
+  <!-- Vite module script entrypoint to bootstrap our Svelte application orchestration -->
+  <script type="module" src="/src/main.js"></script>
+
+  <!-- Optional helper to cleanly tear down the inline loading screen once Svelte fires its mount sequence -->
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      // Svelte App.svelte should handle removing this element onMount, 
+      // but this event provides a safe DOM-fallback fade-out.
+      const loader = document.getElementById('loading-screen');
+      if (loader && window.__SVELTE_MOUNTED__) {
+        loader.style.opacity = '0';
+        setTimeout(() => loader.remove(), 300);
+      }
+    });
+  </script>
+
+</body>
 </html>

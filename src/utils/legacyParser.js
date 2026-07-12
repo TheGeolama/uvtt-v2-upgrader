@@ -5,17 +5,14 @@
  */
 
 function base64ToBlob(base64, mimeType = 'image/webp') {
-    // Strip potential data URI prefix to prevent InvalidCharacterError
     if (typeof base64 === 'string' && base64.includes(',')) {
         base64 = base64.split(',')[1];
     }
-    // Remove whitespace/newlines which can also break atob()
     base64 = base64.replace(/\s/g, '');
 
     const byteCharacters = atob(base64);
     const byteArrays = [];
 
-    // Process in chunks to bypass memory/URL limits
     for (let offset = 0; offset < byteCharacters.length; offset += 512) {
         const slice = byteCharacters.slice(offset, offset + 512);
         const byteArray = new Uint8Array(slice.length);
@@ -27,10 +24,6 @@ function base64ToBlob(base64, mimeType = 'image/webp') {
     return new Blob(byteArrays, { type: mimeType });
 }
 
-/**
- * Snaps a given coordinate to an existing vertex if it falls within the tolerance radius.
- * This mathematically seals corners to prevent VTT light leaks.
- */
 function snapCoordinates(x, y, registry, tolerance) {
     for (const pt of registry) {
         if (Math.abs(pt.x - x) <= tolerance && Math.abs(pt.y - y) <= tolerance) {
@@ -49,7 +42,6 @@ export async function upgradeLegacyMap(file) {
             try {
                 const legacyData = JSON.parse(e.target.result);
 
-                // 1. Memory-Safe Image Extraction
                 const base64Data = legacyData.image;
                 const imageBlob = base64ToBlob(base64Data, "image/webp");
                 const imageUrl = URL.createObjectURL(imageBlob);
@@ -60,7 +52,6 @@ export async function upgradeLegacyMap(file) {
                 const vertexRegistry = [];
                 const SNAP_TOLERANCE = 0.05;
 
-                // 2. Process Walls with Vertex Snapping
                 if (legacyData.line_of_sight) {
                     legacyData.line_of_sight.forEach((losArray, index) => {
                         if (losArray.length < 2) return;
@@ -85,7 +76,6 @@ export async function upgradeLegacyMap(file) {
                     });
                 }
 
-                // 3. Process Portals
                 if (legacyData.portals) {
                     legacyData.portals.forEach((portal, index) => {
                         if (!portal.bounds || portal.bounds.length < 2) return;
@@ -105,7 +95,6 @@ export async function upgradeLegacyMap(file) {
                     });
                 }
 
-                // 4. Process Lights
                 if (legacyData.lights) {
                     legacyData.lights.forEach((light, index) => {
                         upgradedLights.push({
@@ -120,7 +109,6 @@ export async function upgradeLegacyMap(file) {
                     });
                 }
 
-                // 5. Build Final V2 Manifest
                 const upgradedManifest = {
                     format_version: "2.0.0",
                     uvtt_version: "2.0.0",
@@ -139,14 +127,15 @@ export async function upgradeLegacyMap(file) {
                         unit_name: "ft",
                         topology: { type: "square", orientation: "flat_top", offset: "odd_row", isometric_ratio: 0.5 }
                     },
+                    environment: {
+                        global_wind: { speed: 5.0, angle: 45.0, gust_variance: 0.15 }
+                    },
                     geometry: {
                         walls: upgradedWalls,
                         portals: upgradedPortals,
                         overhead: []
                     },
                     lights: upgradedLights,
-                    
-                    // --- NEW V2 ENTITIES INITIALIZED HERE ---
                     events: [],
                     audio: [],
                     landing_zones: [],

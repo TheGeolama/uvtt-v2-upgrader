@@ -1,9 +1,13 @@
 <script>
+  import CompilationSpinner from './components/CompilationSpinner.svelte';
   import { mapStore } from "./stores/mapStore.js";
   import Uploader from "./components/Uploader.svelte";
   import CanvasWorkspace from "./components/CanvasWorkspace.svelte";
   import Toolbar from "./components/Toolbar.svelte";
   import ExportMenu from "./components/ExportMenu.svelte";
+    // The spinner binds directly to your global mapStore export/import state
+  $: isProcessing = $mapStore.isExporting || $mapStore.isParsing;
+  $: progressPercentage = $mapStore.compilationProgress || 0;
 </script>
 
 <main>

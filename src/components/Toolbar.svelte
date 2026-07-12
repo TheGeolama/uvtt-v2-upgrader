@@ -486,6 +486,52 @@
         </div>
       </div>
     </div>
+
+    <div class="edit-menu">
+      <h3>GLOBAL ENVIRONMENT</h3>
+      <p class="info-text">Atmospheric and weather physics</p>
+
+      <div class="split-group">
+        <div class="input-group">
+          <label
+            >Wind Speed <input
+              type="number"
+              step="0.5"
+              value={$mapStore.manifest.environment?.global_wind?.speed ?? 5.0}
+              on:change={(e) =>
+                handleManifestEdit("environment.global_wind.speed", e)}
+            /></label
+          >
+        </div>
+        <div class="input-group">
+          <label
+            >Wind Angle (Deg) <input
+              type="number"
+              step="5"
+              min="-360"
+              max="360"
+              value={$mapStore.manifest.environment?.global_wind?.angle ?? 45.0}
+              on:change={(e) =>
+                handleManifestEdit("environment.global_wind.angle", e)}
+            /></label
+          >
+        </div>
+        <div class="input-group">
+          <label
+            >Gust Variance <input
+              type="number"
+              step="0.05"
+              min="0"
+              max="1"
+              value={$mapStore.manifest.environment?.global_wind
+                ?.gust_variance ?? 0.15}
+              on:change={(e) =>
+                handleManifestEdit("environment.global_wind.gust_variance", e)}
+            /></label
+          >
+        </div>
+      </div>
+    </div>
   {/if}
 
   {#if selectedItems.length === 1}
@@ -663,6 +709,26 @@
             </select>
           </label>
         </div>
+
+        <div class="input-group">
+          <label
+            >Collision Mode
+            <select
+              value={selectedItems[0].data.properties?.collision_mode ?? "none"}
+              on:change={(e) => handleEdit("properties.collision_mode", e)}
+            >
+              <option value="none">None (Pass Through)</option>
+              <option value="mask_under_overhead"
+                >Mask Under Overhead (Roofs)</option
+              >
+              <option value="ground_terminate"
+                >Ground Terminate (Puddles/Snow)</option
+              >
+              <option value="wall_bounce">Wall Bounce (Wind Tunnels)</option>
+            </select>
+          </label>
+        </div>
+
         <div class="input-group">
           <label
             >Particle Color <input
@@ -688,7 +754,7 @@
           </div>
           <div class="input-group">
             <label
-              >Speed Multiplier <input
+              >Base Speed <input
                 type="number"
                 step="0.1"
                 min="0"
@@ -701,7 +767,7 @@
         </div>
         <div class="input-group">
           <label
-            >Angle / Wind Direction (Degrees) <input
+            >Base Angle (Degrees) <input
               type="number"
               step="5"
               min="-360"
@@ -711,6 +777,40 @@
             /></label
           >
         </div>
+
+        <div class="checkbox-group">
+          <label
+            ><input
+              type="checkbox"
+              checked={selectedItems[0].data.properties?.wind_influence
+                ?.inherit_global ?? false}
+              on:change={(e) =>
+                handleEdit("properties.wind_influence.inherit_global", e)}
+            /> Inherit Global Wind Physics</label
+          >
+        </div>
+
+        {#if selectedItems[0].data.properties?.wind_influence?.inherit_global}
+          <div
+            class="input-group"
+            style="margin-top: 4px; padding-left: 8px; border-left: 2px solid #00bcd4;"
+          >
+            <label
+              >Global Influence Scalar <input
+                type="number"
+                step="0.1"
+                value={selectedItems[0].data.properties?.wind_influence
+                  ?.influence_scale ?? 1.0}
+                on:change={(e) =>
+                  handleEdit("properties.wind_influence.influence_scale", e)}
+              /></label
+            >
+            <p class="info-text" style="font-size: 10px; margin-top: 4px;">
+              0.0 = Ignore Global Wind<br />1.0 = Match Global Wind<br />>1.0 =
+              Amplified Wind (e.g. Tunnels)
+            </p>
+          </div>
+        {/if}
       {/if}
 
       {#if selectedItems[0].category === "spawn"}

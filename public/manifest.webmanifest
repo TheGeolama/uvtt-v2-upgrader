@@ -1,0 +1,26 @@
+{
+  "short_name": "UVTT v2 Upgrader",
+  "name": "Universal VTT v2 Upgrader",
+  "description": "A hardware-accelerated WebGPU tool to upgrade, repair, and link legacy VTT maps into the multi-floor UVTT v2 (.uvtt2z) format.",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "maskable"
+    }
+  ],
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#00f0ff",
+  "orientation": "any",
+  "categories": ["utilities", "productivity", "games"]
+}

@@ -25,7 +25,7 @@ export const mapActions = {
             if (!manifest.audio) manifest.audio = []; 
             if (!manifest.geometry.overhead) manifest.geometry.overhead = [];
             if (!manifest.landing_zones) manifest.landing_zones = [];
-            if (!manifest.emitters) manifest.emitters = []; // NEW: Emitters array
+            if (!manifest.emitters) manifest.emitters = []; 
             
             if (!manifest.resolution.topology) {
                 manifest.resolution.topology = {
@@ -39,6 +39,12 @@ export const mapActions = {
             if (!manifest.music) manifest.music = { uri: "", volume: 1.0, crossfade_duration: 2.0 };
             if (!manifest.ambience) manifest.ambience = { uri: "", volume: 1.0, crossfade_duration: 2.0 };
             
+            if (!manifest.environment) {
+                manifest.environment = {
+                    global_wind: { speed: 5.0, angle: 45.0, gust_variance: 0.15 }
+                };
+            }
+
             if (!mapObj.audioBlobs) mapObj.audioBlobs = {};
         });
 
@@ -145,7 +151,7 @@ export const mapActions = {
             else if (category === 'audio') targetArray = manifest.audio; 
             else if (category === 'overhead') targetArray = manifest.geometry.overhead; 
             else if (category === 'spawn') targetArray = manifest.landing_zones;
-            else if (category === 'emitter') targetArray = manifest.emitters; // NEW
+            else if (category === 'emitter') targetArray = manifest.emitters;
             else return s;
 
             const itemIndex = targetArray.findIndex(item => item.id === id);
@@ -293,7 +299,6 @@ export const mapActions = {
         });
     },
 
-    // --- NEW: Add Weather/Particle Emitters ---
     addEmitter: (x, y) => {
         mapStore.update(s => {
             if (!s.manifest) return s;
@@ -313,7 +318,12 @@ export const mapActions = {
                     intensity: 0.5,
                     speed: 1.0,
                     angle: 45.0,
-                    color: "#ffffff"
+                    color: "#ffffff",
+                    collision_mode: "none", // NEW: Added collision physics routing
+                    wind_influence: {
+                        inherit_global: true,
+                        influence_scale: 1.0
+                    }
                 }
             };
 
