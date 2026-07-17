@@ -1,3 +1,5 @@
+import JSZip from 'jszip';
+
 // --- DATABASE AUTO-SAVE HELPER ---
 const DB_NAME = 'uvtt_db';
 const STORE_NAME = 'project_store';
@@ -54,6 +56,68 @@ function pointsToBezier(points) {
     return p;
 }
 
+// --- SCHEMA VERIFIER & SCRUBBER ---
+function verifyAndCleanManifest(rawManifest) {
+    const m = JSON.parse(JSON.stringify(rawManifest));
+    const isNum = (v) => typeof v === 'number' && !isNaN(v);
+
+    ['walls', 'portals', 'overhead'].forEach(cat => {
+        if (m.geometry && m.geometry[cat]) {
+            m.geometry[cat] = m.geometry[cat].filter(item => {
+                if (!item.path || !Array.isArray(item.path) || item.path.length < 2) return false;
+                return item.path.every(pt => isNum(pt.x) && isNum(pt.y));
+            });
+        }
+    });
+
+    if (m.entities) {
+        if (m.entities.lights) {
+            m.entities.lights = m.entities.lights.filter(l => {
+                if (!l.position || !isNum(l.position.x) || !isNum(l.position.y)) return false;
+                if (!l.properties) l.properties = {};
+                if (!isNum(l.properties.radius?.bright)) l.properties.radius = { bright: 5, dim: 10 };
+                if (!isNum(l.properties.intensity)) l.properties.intensity = 1.0;
+                if (typeof l.properties.color !== 'string') l.properties.color = "#ffffff";
+                return true;
+            });
+        }
+        if (m.entities.landing_zones) {
+            m.entities.landing_zones = m.entities.landing_zones.filter(lz => {
+                return lz.coordinates && Array.isArray(lz.coordinates) && isNum(lz.coordinates[0]) && isNum(lz.coordinates[1]);
+            });
+        }
+        if (m.entities.events) {
+            m.entities.events = m.entities.events.filter(ev => {
+                if (!ev.trigger_bounds || !ev.trigger_bounds.center || !isNum(ev.trigger_bounds.center.x) || !isNum(ev.trigger_bounds.center.y)) return false;
+                if (!isNum(ev.trigger_bounds.radius)) ev.trigger_bounds.radius = 1;
+                return true;
+            });
+        }
+        if (m.entities.audio && m.entities.audio.zones) {
+            m.entities.audio.zones = m.entities.audio.zones.filter(az => {
+                if (!az.center || !isNum(az.center.x) || !isNum(az.center.y)) return false;
+                if (!isNum(az.radius)) az.radius = 5;
+                if (!isNum(az.volume)) az.volume = 100;
+                return true;
+            });
+        }
+        if (m.entities.emitters) {
+            m.entities.emitters = m.entities.emitters.filter(em => {
+                if (!em.position || !isNum(em.position.x) || !isNum(em.position.y)) return false;
+                if (!isNum(em.scale)) em.scale = 100;
+                return true;
+            });
+        }
+    }
+
+    if (!m.resolution) m.resolution = {};
+    if (!isNum(m.resolution.pixels_per_grid)) m.resolution.pixels_per_grid = 70;
+    if (!isNum(m.resolution.grid_line_width)) m.resolution.grid_line_width = 1.5;
+    if (!isNum(m.resolution.subgrid_line_width)) m.resolution.subgrid_line_width = 1.0;
+
+    return m;
+}
+
 export const mapStore = createMapStore();
 
 function createMapStore() {
@@ -69,7 +133,6 @@ function createMapStore() {
 
     let _saveTimeout = null;
 
-    // Trigger initial restore
     loadFromDB('autosave').then(saved => {
         if (saved && saved.catalog && saved.catalog.length > 0) {
             catalog = saved.catalog;
@@ -106,14 +169,20 @@ function createMapStore() {
             }, 2000);
         },
 
-        downloadJSON(filename, data) {
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        downloadBlob(filename, blob) {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
             a.download = filename;
+            document.body.appendChild(a); 
             a.click();
-            URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 1000); 
+        },
+
+        downloadJSON(filename, data) {
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            this.downloadBlob(filename, blob);
         },
 
         saveProject() {
@@ -124,19 +193,28 @@ function createMapStore() {
             this.downloadJSON('my_map.uvtt-proj', projectData);
         },
 
+        closeProject() {
+            catalog = [];
+            activeMapId = null;
+            selectedItemIds = [];
+            clipboard = [];
+            updateTrigger++;
+            this.triggerAutoSave();
+        },
+
         exportVTT() {
             if (!this.activeMap) return;
-            const cleanManifest = JSON.parse(JSON.stringify(this.activeMap.manifest));
+            const cleanManifest = verifyAndCleanManifest(this.activeMap.manifest);
             this.downloadJSON(`${this.activeMap.filename || 'export'}.uvtt`, cleanManifest);
         },
 
         exportLegacyV1() {
             if (!this.activeMap) return;
-            const legacyManifest = JSON.parse(JSON.stringify(this.activeMap.manifest));
+            const cleanManifest = verifyAndCleanManifest(this.activeMap.manifest);
             
-            if (legacyManifest.entities) {
-                if (legacyManifest.entities.lights) {
-                    legacyManifest.entities.lights = legacyManifest.entities.lights.map(l => {
+            if (cleanManifest.entities) {
+                if (cleanManifest.entities.lights) {
+                    cleanManifest.entities.lights = cleanManifest.entities.lights.map(l => {
                         const v1Light = { id: l.id };
                         if (l.position) v1Light.position = [l.position.x, l.position.y];
                         if (l.properties) {
@@ -147,12 +225,12 @@ function createMapStore() {
                         return v1Light;
                     });
                 }
-                if (legacyManifest.entities.landing_zones) {
-                    legacyManifest.entities.spawns = legacyManifest.entities.landing_zones;
-                    delete legacyManifest.entities.landing_zones;
+                if (cleanManifest.entities.landing_zones) {
+                    cleanManifest.entities.spawns = cleanManifest.entities.landing_zones;
+                    delete cleanManifest.entities.landing_zones;
                 }
-                if (legacyManifest.entities.events) {
-                    legacyManifest.entities.events = legacyManifest.entities.events.map(ev => {
+                if (cleanManifest.entities.events) {
+                    cleanManifest.entities.events = cleanManifest.entities.events.map(ev => {
                         if (ev.trigger_bounds && ev.trigger_bounds.center) {
                             ev.x = ev.trigger_bounds.center.x;
                             ev.y = ev.trigger_bounds.center.y;
@@ -162,7 +240,7 @@ function createMapStore() {
                     });
                 }
             }
-            this.downloadJSON(`${this.activeMap.filename || 'export'}_v1_legacy.uvtt`, legacyManifest);
+            this.downloadJSON(`${this.activeMap.filename || 'export'}_v1_legacy.uvtt`, cleanManifest);
         },
 
         exportCompoundVTT(isLegacy = false) {
@@ -174,7 +252,7 @@ function createMapStore() {
             };
 
             catalog.forEach(mapDef => {
-                let levelManifest = JSON.parse(JSON.stringify(mapDef.manifest));
+                let levelManifest = verifyAndCleanManifest(mapDef.manifest);
                 levelManifest.level_id = mapDef.id;
                 levelManifest.level_name = mapDef.filename || "Unnamed Level";
 
@@ -212,19 +290,291 @@ function createMapStore() {
             this.downloadJSON(`Compound_Dungeon_${isLegacy ? 'v1' : 'v2'}.uvtt`, compoundManifest);
         },
 
-        async loadProjectFromFile(file) {
-            const text = await file.text();
+        async exportSecureVTT(isCompound = false) {
             try {
+                if (!window.crypto || !window.crypto.subtle) {
+                    alert("SECURITY ERROR: The Web Crypto API requires a Secure Context. You must view this page via HTTPS or 'localhost'.");
+                    return;
+                }
+
+                if (!this.activeMap && !isCompound) return;
+                if (isCompound && catalog.length === 0) return;
+
+                const baseName = isCompound ? 'Compound_Dungeon' : (this.activeMap.filename || 'export');
+                const internalZip = new JSZip();
+
+                // --- 1. MEMORY-SAFE ASSET BUNDLER ---
+                const safeBase64ToBlob = (base64, mime) => {
+                    const binary = atob(base64);
+                    const array = new Uint8Array(binary.length);
+                    for (let i = 0; i < binary.length; i++) {
+                        array[i] = binary.charCodeAt(i);
+                    }
+                    return new Blob([array], { type: mime });
+                };
+
+                const bundleMapImage = async (mapDef, manifestToUpdate) => {
+                    const sourceData = mapDef.imageUrl || mapDef.manifest.image;
+                    if (!sourceData) return;
+
+                    try {
+                        let originalBlob;
+
+                        // Case A: Data URI
+                        if (sourceData.startsWith('data:image')) {
+                            const parts = sourceData.split(',');
+                            const mime = parts[0].match(/:(.*?);/)[1];
+                            originalBlob = safeBase64ToBlob(parts[1], mime);
+                        } 
+                        // Case B: blob: URL or http
+                        else if (sourceData.startsWith('blob:') || sourceData.startsWith('http')) {
+                            const res = await fetch(sourceData);
+                            originalBlob = await res.blob();
+                        } 
+                        // Case C: Raw Base64 string (Dungeondraft standard)
+                        else {
+                            originalBlob = safeBase64ToBlob(sourceData, 'image/png');
+                        }
+
+                        // --- WEBP TRANSCODING ---
+                        let finalBlob = originalBlob;
+                        let ext = 'png';
+
+                        try {
+                            const img = new Image();
+                            const blobUrl = URL.createObjectURL(originalBlob);
+                            
+                            await new Promise((resolve, reject) => {
+                                img.onload = resolve;
+                                img.onerror = reject;
+                                img.src = blobUrl;
+                            });
+
+                            const canvas = document.createElement('canvas');
+                            canvas.width = img.width;
+                            canvas.height = img.height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0);
+                            URL.revokeObjectURL(blobUrl);
+
+                            const webpBlob = await new Promise(resolve => canvas.toBlob(resolve, "image/webp", 0.9));
+                            if (webpBlob) {
+                                finalBlob = webpBlob;
+                                ext = 'webp';
+                            }
+                        } catch (transcodeErr) {
+                            console.warn(`WebP transcode failed/skipped for map ${mapDef.id}. Falling back to source format.`, transcodeErr);
+                            // Fallback gracefully without breaking the loop
+                            if (originalBlob.type === 'image/jpeg') ext = 'jpg';
+                        }
+
+                        // Write to JSZip and strictly update manifest
+                        const filename = `map_${mapDef.id}.${ext}`;
+                        internalZip.file(`assets/images/${filename}`, finalBlob);
+                        manifestToUpdate.image = `assets/images/${filename}`;
+
+                    } catch (e) {
+                        console.error("Failed to bundle image for map", mapDef.id, e);
+                    }
+                };
+
+                // --- 2. BUILD THE JSON MANIFEST & INJECT IMAGES ---
+                if (isCompound) {
+                    const compoundManifest = {
+                        type: "compound_dungeon",
+                        export_version: 2,
+                        levels: []
+                    };
+                    for (const mapDef of catalog) {
+                        let levelManifest = verifyAndCleanManifest(mapDef.manifest);
+                        levelManifest.level_id = mapDef.id;
+                        levelManifest.level_name = mapDef.filename || "Unnamed Level";
+                        
+                        await bundleMapImage(mapDef, levelManifest);
+                        compoundManifest.levels.push(levelManifest);
+                    }
+                    internalZip.file("manifest.json", JSON.stringify(compoundManifest, null, 2));
+                } else {
+                    const cleanManifest = verifyAndCleanManifest(this.activeMap.manifest);
+                    await bundleMapImage(this.activeMap, cleanManifest);
+                    internalZip.file("manifest.json", JSON.stringify(cleanManifest, null, 2));
+                }
+                
+                // --- 3. BUNDLE AUDIO FILES (If any exist) ---
+                if (Object.keys(audioBlobs).length > 0) {
+                    for (const [trackName, blob] of Object.entries(audioBlobs)) {
+                        internalZip.file(`assets/audio/${trackName}`, blob);
+                    }
+                }
+
+                // Generate payload buffer
+                const internalZipBuffer = await internalZip.generateAsync({ type: "arraybuffer" });
+
+                // Generate AES-GCM Key
+                const key = await window.crypto.subtle.generateKey(
+                    { name: "AES-GCM", length: 256 },
+                    true,
+                    ["encrypt", "decrypt"]
+                );
+
+                const exportedKey = await window.crypto.subtle.exportKey("jwk", key);
+                const keyString = JSON.stringify(exportedKey, null, 2);
+
+                // Encrypt Payload
+                const iv = window.crypto.getRandomValues(new Uint8Array(12));
+                const ciphertext = await window.crypto.subtle.encrypt(
+                    { name: "AES-GCM", iv: iv },
+                    key,
+                    internalZipBuffer
+                );
+
+                const encryptedPayload = new Uint8Array(iv.length + ciphertext.byteLength);
+                encryptedPayload.set(iv, 0);
+                encryptedPayload.set(new Uint8Array(ciphertext), iv.length);
+
+                // Create Final Delivery Zip
+                const deliveryZip = new JSZip();
+                deliveryZip.file(`${baseName}.uvtt2k`, keyString); 
+                deliveryZip.file(`${baseName}.uvtt2z`, encryptedPayload);
+
+                const deliveryBuffer = await deliveryZip.generateAsync({ type: "blob" });
+                this.downloadBlob(`${baseName}_Secure_Export.zip`, deliveryBuffer);
+
+            } catch (error) {
+                console.error("Secure Export Failed:", error);
+                alert(`Export Failed: ${error.message || 'Check the console for details.'}`);
+            }
+        },
+
+        async loadProjectFromFile(file) {
+            if (!file) return;
+
+            // --- DECRYPTION & IMPORT PIPELINE ---
+            if (file.name.toLowerCase().endsWith('.zip')) {
+                try {
+                    if (!window.crypto || !window.crypto.subtle) {
+                        alert("SECURITY ERROR: Web Crypto API requires HTTPS or localhost to decrypt.");
+                        return;
+                    }
+
+                    const fileBuffer = await file.arrayBuffer();
+                    const zip = await JSZip.loadAsync(fileBuffer);
+                    
+                    const keyFile = Object.values(zip.files).find(f => f.name.endsWith('.uvtt2k'));
+                    const payloadFile = Object.values(zip.files).find(f => f.name.endsWith('.uvtt2z'));
+
+                    if (!keyFile || !payloadFile) {
+                        alert("Invalid Secure Archive: The .zip must contain both the .uvtt2k key and the .uvtt2z payload.");
+                        return;
+                    }
+
+                    const keyString = await keyFile.async("string");
+                    const jwk = JSON.parse(keyString);
+                    
+                    const cryptoKey = await window.crypto.subtle.importKey(
+                        "jwk",
+                        jwk,
+                        { name: "AES-GCM" },
+                        true,
+                        ["decrypt"]
+                    );
+
+                    const encryptedBuffer = await payloadFile.async("arraybuffer");
+                    const iv = encryptedBuffer.slice(0, 12);
+                    const ciphertext = encryptedBuffer.slice(12);
+
+                    const decryptedBuffer = await window.crypto.subtle.decrypt(
+                        { name: "AES-GCM", iv: new Uint8Array(iv) },
+                        cryptoKey,
+                        ciphertext
+                    );
+
+                    const internalZip = await JSZip.loadAsync(decryptedBuffer);
+                    const manifestFile = internalZip.file("manifest.json");
+                    
+                    if (!manifestFile) {
+                        alert("Decryption successful, but no manifest.json found inside the archive.");
+                        return;
+                    }
+
+                    const manifestString = await manifestFile.async("string");
+                    const manifestData = JSON.parse(manifestString);
+                    
+                    // --- ASSET RESTORER HELPER ---
+                    const restoreImage = async (manifestRef) => {
+                        if (!manifestRef.image) return "";
+                        const imgFile = internalZip.file(manifestRef.image);
+                        if (imgFile) {
+                            const blob = await imgFile.async("blob");
+                            return URL.createObjectURL(blob);
+                        }
+                        return "";
+                    };
+
+                    let newCatalog = [];
+                    if (manifestData.type === "compound_dungeon") {
+                        for (const level of manifestData.levels) {
+                            const restoredUrl = await restoreImage(level);
+                            newCatalog.push({
+                                id: level.level_id || crypto.randomUUID(),
+                                filename: level.level_name || "Imported Level",
+                                manifest: level,
+                                imageUrl: restoredUrl
+                            });
+                        }
+                    } else {
+                        const restoredUrl = await restoreImage(manifestData);
+                        newCatalog = [{
+                            id: crypto.randomUUID(),
+                            filename: file.name.replace('.zip', '').replace('_Secure_Export', ''),
+                            manifest: manifestData,
+                            imageUrl: restoredUrl 
+                        }];
+                    }
+
+                    // --- RESTORE AUDIO BLOBS ---
+                    const newAudioBlobs = {};
+                    const audioPromises = [];
+                    internalZip.folder("assets/audio")?.forEach((relativePath, audioFile) => {
+                        if (!audioFile.dir) {
+                            audioPromises.push((async () => {
+                                newAudioBlobs[relativePath] = await audioFile.async("blob");
+                            })());
+                        }
+                    });
+                    await Promise.all(audioPromises);
+                    audioBlobs = newAudioBlobs;
+
+                    catalog = newCatalog;
+                    activeMapId = newCatalog[0].id;
+                    selectedItemIds = [];
+                    this.initHistory();
+                    updateTrigger++;
+                    this.triggerAutoSave();
+                    return;
+
+                } catch (e) {
+                    console.error("Secure import failed:", e);
+                    alert(`Decryption Failed: ${e.message || "The key is invalid or the archive is corrupted."}`);
+                    return;
+                }
+            }
+
+            // --- STANDARD .UVTT-PROJ PIPELINE ---
+            try {
+                const text = await file.text();
                 const projectData = JSON.parse(text);
                 if (projectData.catalog) {
                     catalog = projectData.catalog;
                     activeMapId = projectData.activeMapId;
                     selectedItemIds = [];
+                    this.initHistory();
                     updateTrigger++;
                     this.triggerAutoSave();
                 }
             } catch (e) {
                 console.error("Failed to parse project file.", e);
+                alert("Failed to parse project file. Ensure it is a valid .uvtt-proj or .zip file.");
             }
         },
 
@@ -559,8 +909,6 @@ function createMapStore() {
             if (!activeMap || selectedItemIds.length === 0) return;
             const m = activeMap.manifest;
 
-            // In-place mutation using Svelte 5 friendly splice mechanics 
-            // rather than completely overwriting the proxy with .filter()
             const removeById = (arr) => {
                 if (!Array.isArray(arr)) return;
                 for (let i = arr.length - 1; i >= 0; i--) {

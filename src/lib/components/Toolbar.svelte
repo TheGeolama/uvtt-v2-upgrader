@@ -135,11 +135,24 @@
             <span>Package Catalog as Compound Dungeon</span>
           </label>
           <div style="display: flex; gap: 8px; flex-direction: column;">
-            <button
-              class="action-btn wave"
-              onclick={() => mapStore.saveProject()}
-              >📦 Save Project (.uvtt-proj)</button
-            >
+            <div style="display: flex; gap: 8px;">
+              <button
+                class="action-btn wave"
+                onclick={() => mapStore.saveProject()}>📦 Save</button
+              >
+              <button
+                class="action-btn"
+                style="background: #ef444422; border-color: #ef4444; color: #fca5a5;"
+                onclick={() => {
+                  if (
+                    confirm(
+                      "Close project and return to start screen? Unsaved changes will be lost.",
+                    )
+                  )
+                    mapStore.closeProject();
+                }}>❌ Close</button
+              >
+            </div>
             <label
               class="action-btn"
               style="background: #1e293b; color: #e2e8f0; text-align: center; cursor: pointer;"
@@ -147,7 +160,7 @@
               📂 Load Project
               <input
                 type="file"
-                accept=".uvtt-proj"
+                accept=".uvtt-proj,.zip"
                 style="display: none;"
                 onchange={triggerFileImport}
               />
@@ -168,6 +181,11 @@
                     : mapStore.exportVTT()}>📤 Compile v2</button
               >
             </div>
+            <button
+              class="action-btn secure"
+              onclick={() => mapStore.exportSecureVTT(packageCompound)}
+              >🔒 Secure Archive (.zip)</button
+            >
           </div>
           <p class="helper-text" style="margin-top: 5px;">
             Your work is continuously auto-saved to your browser's local cache.
@@ -312,9 +330,8 @@
         <div class="panel-section">
           <h3>🎵 GLOBAL AUDIO</h3>
           <label>
-            <span>Background Soundtrack (File):</span>
-            <input
-              type="text"
+            <span>Background Soundtrack:</span>
+            <select
               value={manifest.music?.track || ""}
               onchange={(e) =>
                 mapStore.updateItemProperty(
@@ -322,13 +339,16 @@
                   "music.track",
                   e.target.value,
                 )}
-              placeholder="e.g., battle_theme.ogg"
-            />
+            >
+              <option value="">-- No Track --</option>
+              {#each Object.keys(mapStore.audioBlobs) as track}
+                <option value={track}>{track}</option>
+              {/each}
+            </select>
           </label>
           <label>
-            <span>Ambient Soundscape (File):</span>
-            <input
-              type="text"
+            <span>Ambient Soundscape:</span>
+            <select
               value={manifest.ambience?.track || ""}
               onchange={(e) =>
                 mapStore.updateItemProperty(
@@ -336,8 +356,12 @@
                   "ambience.track",
                   e.target.value,
                 )}
-              placeholder="e.g., dripping_cave.ogg"
-            />
+            >
+              <option value="">-- No Track --</option>
+              {#each Object.keys(mapStore.audioBlobs) as track}
+                <option value={track}>{track}</option>
+              {/each}
+            </select>
           </label>
         </div>
       {:else}
@@ -372,7 +396,7 @@
               </select>
             </label>
             <label>
-              <span>Initial Door State:</span>
+              <span>Initial State:</span>
               <select
                 value={item.properties?.state || "closed"}
                 onchange={(e) =>
@@ -381,6 +405,7 @@
                 <option value="closed">Closed (Blocks Movement)</option>
                 <option value="open">Open (Passable)</option>
                 <option value="locked">Locked</option>
+                <option value="broken">Broken (Passable/Lets Light In)</option>
               </select>
             </label>
           {:else if item.category === "light"}
@@ -658,13 +683,16 @@
             {/if}
           {:else if item.category === "audio"}
             <label>
-              <span>Audio Track / File:</span>
-              <input
-                type="text"
+              <span>Audio Track:</span>
+              <select
                 value={item.track || ""}
-                oninput={(e) => updateProperty("track", e.target.value)}
-                placeholder="e.g., roaring_fireplace.ogg"
-              />
+                onchange={(e) => updateProperty("track", e.target.value)}
+              >
+                <option value="">-- Select Track --</option>
+                {#each Object.keys(mapStore.audioBlobs) as track}
+                  <option value={track}>{track}</option>
+                {/each}
+              </select>
             </label>
             <label>
               <span>Base Volume (%):</span>
@@ -1113,5 +1141,10 @@
     background: #3b82f622;
     border-color: #3b82f6;
     color: #93c5fd;
+  }
+  .action-btn.secure {
+    background: #a855f722;
+    border-color: #a855f7;
+    color: #d8b4fe;
   }
 </style>
