@@ -123,16 +123,6 @@
     }
   }
 
-  async function handleAutoTraceWalls() {
-    if (isCrunchingWalls) return;
-    isCrunchingWalls = true;
-    try {
-      await mapStore.autoTraceMapWalls(edgeSensitivity);
-    } finally {
-      isCrunchingWalls = false;
-    }
-  }
-
   async function handlePlatformExport(platform) {
     if (packageCompound) {
       if (catalog.length === 0) return;
