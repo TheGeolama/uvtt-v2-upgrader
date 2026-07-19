@@ -260,8 +260,6 @@ class MapStore {
         const gridX = Number(res.pixels_per_grid) || 70;
         const gridY = Number(res.pixels_per_grid_y) || gridX;
 
-        // Modulo math ensures the grid intersection perfectly hits the clicked pixel
-        // without physically throwing the image thousands of pixels off the screen!
         const modX = ((imagePixelX % gridX) + gridX) % gridX;
         const modY = ((imagePixelY % gridY) + gridY) % gridY;
 
@@ -293,7 +291,6 @@ class MapStore {
         let sumW = 0, sumH = 0;
         let validCount = 0;
 
-        // Calculate independent X and Y scales
         boxes.forEach(b => {
             const w = Math.abs(b.ex - b.sx);
             const h = Math.abs(b.ey - b.sy);
@@ -319,7 +316,6 @@ class MapStore {
         const oldPpgX = Number(res.pixels_per_grid) || 70;
         const oldPpgY = Number(res.pixels_per_grid_y) || oldPpgX;
         
-        // Preserve absolute pixel dimensions of the image canvas
         const pixelWidth = res.map_size[0] * oldPpgX;
         const pixelHeight = res.map_size[1] * oldPpgY;
         
@@ -329,7 +325,6 @@ class MapStore {
         res.map_size[0] = pixelWidth / newPpgX;
         res.map_size[1] = pixelHeight / newPpgY;
         
-        // Lock the origin exactly to the top-left corner of the first box drawn
         const modX = ((anchorX % newPpgX) + newPpgX) % newPpgX;
         const modY = ((anchorY % newPpgY) + newPpgY) % newPpgY;
         
@@ -355,8 +350,6 @@ class MapStore {
         if (newPpgX !== null && !isNaN(newPpgX) && newPpgX > 0) {
             res.pixels_per_grid = Number(newPpgX);
             res.map_size[0] = pixelWidth / res.pixels_per_grid;
-            
-            // If they are setting X but Y doesn't exist yet, bind them
             if (res.pixels_per_grid_y === undefined) {
                 res.pixels_per_grid_y = res.pixels_per_grid;
                 res.map_size[1] = pixelHeight / res.pixels_per_grid_y;
@@ -1081,38 +1074,41 @@ class MapStore {
         this.triggerAutoSave();
     }
 
-    // --- NODE MUTATIONS ---
+    // --- NODE MUTATIONS (FIXED: Deep Cloning array paths so Svelte 5 absolutely triggers reactivity) ---
     deleteVectorNode(exactX, exactY, thresholdSq) {
         const activeMap = this.activeMap;
         if (!activeMap) return false;
         let nodeDeleted = false;
 
         ['walls', 'portals', 'overhead'].forEach(cat => {
-            const items = activeMap.manifest.geometry[cat];
-            if (!items) return;
-            for (let itemIdx = items.length - 1; itemIdx >= 0; itemIdx--) {
-                const item = items[itemIdx];
-                if (nodeDeleted || !item.path) continue;
+            if (!activeMap.manifest.geometry[cat]) return;
+            const newItems = [...activeMap.manifest.geometry[cat]]; 
+            
+            for (let itemIdx = newItems.length - 1; itemIdx >= 0; itemIdx--) {
+                const item = { ...newItems[itemIdx] }; 
+                if (!item.path) continue;
                 for (let i = 0; i < item.path.length; i++) {
                     const px = Number(item.path[i].x);
                     const py = Number(item.path[i].y);
                     const distSq = (exactX - px) ** 2 + (exactY - py) ** 2;
 
                     if (distSq < thresholdSq) {
+                        item.path = [...item.path];
                         item.path.splice(i, 1);
-                        item.path = [...item.path]; 
                         
                         if (item.path.length < 2) {
-                            items.splice(itemIdx, 1);
+                            newItems.splice(itemIdx, 1);
                             this.selectedItemIds = this.selectedItemIds.filter(id => id !== item.id);
+                        } else {
+                            newItems[itemIdx] = item;
                         }
                         
                         nodeDeleted = true;
-                        activeMap.manifest.geometry[cat] = [...items]; 
+                        activeMap.manifest.geometry[cat] = newItems; // Robust reassignment
                         this.pushHistory("Delete Vector Node");
                         this.updateSpatialIndex();
                         this.updateTrigger++;
-                        return;
+                        return; // breaks forEach iteration
                     }
                 }
             }
@@ -1126,11 +1122,14 @@ class MapStore {
         let splitOccurred = false;
 
         ['walls', 'portals', 'overhead'].forEach(cat => {
-            const items = activeMap.manifest.geometry[cat];
-            if (!items) return;
-            for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
-                const item = items[itemIdx];
-                if (splitOccurred || !item.path) continue;
+            if (!activeMap.manifest.geometry[cat]) return;
+            const newItems = [...activeMap.manifest.geometry[cat]]; 
+            
+            for (let itemIdx = 0; itemIdx < newItems.length; itemIdx++) {
+                if (splitOccurred) continue;
+                const item = { ...newItems[itemIdx] };
+                if (!item.path) continue;
+                
                 for (let i = 0; i < item.path.length - 1; i++) {
                     const x1 = Number(item.path[i].x);
                     const y1 = Number(item.path[i].y);
@@ -1145,19 +1144,49 @@ class MapStore {
                     const distSq = (exactX - projX) ** 2 + (exactY - projY) ** 2;
 
                     if (distSq < thresholdSq) {
+                        item.path = [...item.path];
                         item.path.splice(i + 1, 0, { x: exactX, y: exactY });
-                        item.path = [...item.path]; 
+                        
+                        newItems[itemIdx] = item;
                         splitOccurred = true;
-                        activeMap.manifest.geometry[cat] = [...items]; 
+                        
+                        activeMap.manifest.geometry[cat] = newItems; // Robust reassignment
                         this.pushHistory("Split Vector");
                         this.updateSpatialIndex();
                         this.updateTrigger++;
-                        return;
+                        return; // breaks forEach iteration
                     }
                 }
             }
         });
         return splitOccurred;
+    }
+
+    // --- FIX: Dragging Single Nodes instead of the entire line ---
+    updateSingleNodePosition(id, nodeIndex, exactX, exactY) {
+        const activeMap = this.activeMap;
+        if (!activeMap) return;
+        const m = activeMap.manifest;
+        
+        ['walls', 'portals', 'overhead'].forEach(cat => {
+            if (!m.geometry[cat]) return;
+            const itemIndex = m.geometry[cat].findIndex(i => i.id === id);
+            if (itemIndex > -1) {
+                const newItems = [...m.geometry[cat]];
+                const item = { ...newItems[itemIndex] };
+                if (item.path && item.path[nodeIndex]) {
+                    item.path = [...item.path];
+                    item.path[nodeIndex].x = exactX;
+                    item.path[nodeIndex].y = exactY;
+                    newItems[itemIndex] = item;
+                    m.geometry[cat] = newItems;
+                }
+            }
+        });
+
+        this.pushHistory("Moved Vector Node");
+        this.updateSpatialIndex();
+        this.updateTrigger++;
     }
 
     // --- ENTITY CREATION & DEFAULTS ---
@@ -1404,8 +1433,16 @@ class MapStore {
         const m = activeMap.manifest;
         
         ['walls', 'portals', 'overhead'].forEach(cat => {
-            const item = m.geometry[cat]?.find(i => i.id === id);
-            if (item && item.path) item.path.forEach(pt => { pt.x = Number(pt.x) + dx; pt.y = Number(pt.y) + dy; });
+            const itemIndex = m.geometry[cat]?.findIndex(i => i.id === id);
+            if (itemIndex > -1) {
+                const newItems = [...m.geometry[cat]];
+                const item = { ...newItems[itemIndex] };
+                if (item.path) {
+                    item.path = item.path.map(pt => ({ x: Number(pt.x) + dx, y: Number(pt.y) + dy }));
+                    newItems[itemIndex] = item;
+                    m.geometry[cat] = newItems;
+                }
+            }
         });
 
         const light = m.entities.lights?.find(i => i.id === id);
@@ -1436,9 +1473,15 @@ class MapStore {
         const m = activeMap.manifest;
         this.selectedItemIds.forEach(id => {
             ['walls', 'portals', 'overhead'].forEach(cat => {
-                const item = m.geometry[cat]?.find(i => i.id === id);
-                if (item && item.path) {
-                    item.path.forEach(pt => { pt.x += dx; pt.y += dy; });
+                const itemIndex = m.geometry[cat]?.findIndex(i => i.id === id);
+                if (itemIndex > -1) {
+                    const newItems = [...m.geometry[cat]];
+                    const item = { ...newItems[itemIndex] };
+                    if (item.path) {
+                        item.path = item.path.map(pt => ({ x: Number(pt.x) + dx, y: Number(pt.y) + dy }));
+                        newItems[itemIndex] = item;
+                        m.geometry[cat] = newItems;
+                    }
                 }
             });
             ['lights', 'landing_zones', 'events', 'emitters', 'props'].forEach(cat => {
@@ -1521,13 +1564,20 @@ class MapStore {
         if (!activeMap || this.selectedItemIds.length === 0) return;
         const m = activeMap.manifest;
         this.selectedItemIds.forEach(id => {
-            const wall = m.geometry.walls?.find(i => i.id === id);
-            if (wall && wall.path.length > 2) {
-                wall.path = pointsToBezier(wall.path);
-                wall.isBezier = true; 
+            const wallIndex = m.geometry.walls?.findIndex(i => i.id === id);
+            if (wallIndex > -1) {
+                const newWalls = [...m.geometry.walls];
+                const wall = { ...newWalls[wallIndex] };
+                if (wall.path && wall.path.length > 2) {
+                    wall.path = pointsToBezier(wall.path);
+                    wall.isBezier = true; 
+                    newWalls[wallIndex] = wall;
+                    m.geometry.walls = newWalls;
+                }
             }
         });
         this.pushHistory("Smoothed Spline");
+        this.updateTrigger++;
     }
 
     copySelected() {
@@ -1585,6 +1635,56 @@ class MapStore {
     duplicateSelected() {
         this.copySelected();
         this.pasteClipboard(0, 0);
+    }
+
+    // --- GLOBAL ASSET LIBRARY BRIDGE ---
+    async mountAssetLibrary() {
+        if (window.go && window.go.main && window.go.main.App && window.go.main.App.SelectAssetDirectory) {
+            try {
+                const assets = await window.go.main.App.SelectAssetDirectory();
+                if (assets && assets.length > 0) {
+                    const images = assets.filter(a => a.type === 'image');
+                    const audio = assets.filter(a => a.type === 'audio');
+                    this.globalAssets = { images, audio };
+
+                    const audioPromises = audio.map(async (a) => {
+                        try {
+                            const res = await fetch(a.data);
+                            const blob = await res.blob();
+                            this.audioBlobs[a.name] = blob;
+                        } catch (e) {
+                            console.error(`Failed to fetch local audio: ${a.name}`);
+                        }
+                    });
+                    
+                    await Promise.all(audioPromises);
+                    this.updateTrigger++;
+                }
+            } catch (err) {
+                console.error("Failed to load asset directory:", err);
+            }
+        } else {
+            alert("Asset Library requires the native Wails Desktop build running.");
+        }
+    }
+
+    addProp(x, y, imageURL, name) {
+        const activeMap = this.activeMap;
+        if (!activeMap) return;
+        const ds = this.defaultSettings.prop;
+        const prop = {
+            id: crypto.randomUUID(),
+            name: name,
+            image: imageURL,
+            position: { x, y, z: ds.position.z },
+            rotation: ds.rotation,
+            scale: ds.scale
+        };
+        if (!activeMap.manifest.entities.props) activeMap.manifest.entities.props = [];
+        activeMap.manifest.entities.props.push(prop);
+        this.pushHistory("Added Prop Asset");
+        this.updateSpatialIndex();
+        this.updateTrigger++;
     }
 }
 

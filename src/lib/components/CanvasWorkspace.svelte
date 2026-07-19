@@ -22,8 +22,12 @@
   let isPanning = $state(false);
   let dragStart = { x: 0, y: 0 };
   let originalPan = { x: 0, y: 0 };
+
+  // DRAG STATE (Updated to support individual nodes)
   let draggedItemId = null;
+  let draggedNodeIndex = null;
   let lastDragGrid = null;
+
   let currentGridX = 0;
   let currentGridY = 0;
 
@@ -458,6 +462,7 @@
       }
     });
 
+    // === NEW LOGIC: DRAWING NODES FOR SELECTED VECTORS ===
     (manifest.geometry.overhead || []).forEach((roof) => {
       const gfx = new PIXI.Graphics();
       geometryContainer.addChild(gfx);
@@ -476,10 +481,21 @@
           join: "round",
           cap: "round",
         });
+
+        // Draw physical node points!
+        if (roof.path) {
+          roof.path.forEach((pt) => {
+            const px = (Number(pt.x) - originX) * gridX;
+            const py = (Number(pt.y) - originY) * gridY;
+            gfx
+              .circle(px, py, 6)
+              .fill({ color: 0xffffff })
+              .stroke({ width: 2, color: 0x22c55e });
+          });
+        }
       }
 
       tracePath(gfx, roof.path, gridX, gridY, originX, originY, true);
-
       if (roof.path && roof.path.length > 2) {
         gfx.fill({ color: tint, alpha: renderOpacity });
         gfx.stroke({
@@ -505,6 +521,18 @@
           join: "round",
           cap: "round",
         });
+
+        // Draw physical node points!
+        if (wall.path) {
+          wall.path.forEach((pt) => {
+            const px = (Number(pt.x) - originX) * gridX;
+            const py = (Number(pt.y) - originY) * gridY;
+            gfx
+              .circle(px, py, 6)
+              .fill({ color: 0xffffff })
+              .stroke({ width: 2, color: 0x00f0ff });
+          });
+        }
       }
 
       tracePath(gfx, wall.path, gridX, gridY, originX, originY);
@@ -533,6 +561,18 @@
           join: "round",
           cap: "round",
         });
+
+        // Draw physical node points!
+        if (portal.path) {
+          portal.path.forEach((pt) => {
+            const px = (Number(pt.x) - originX) * gridX;
+            const py = (Number(pt.y) - originY) * gridY;
+            gfx
+              .circle(px, py, 6)
+              .fill({ color: 0xffffff })
+              .stroke({ width: 2, color: pColor });
+          });
+        }
       }
 
       tracePath(gfx, portal.path, gridX, gridY, originX, originY);
@@ -1117,13 +1157,38 @@
       }
     }
 
-    if (e.button === 2 && e.altKey && draftingPath.length === 0) {
+    // === RESTORED & CORRECTED ALT/SHIFT VECTOR BINDS ===
+    if (e.button === 2 && draftingPath.length === 0) {
       const coords = getGridCoordinates(
         e.clientX,
         e.clientY,
-        e.shiftKey,
+        false,
         activeTool,
       );
+      const thresholdSq = (15 / scale / coords.gridX) ** 2;
+
+      if (e.altKey) {
+        // ALT-RIGHT-CLICK = SPLIT VECTOR
+        const splitOccurred = mapStore.splitVectorNode(
+          coords.exactX,
+          coords.exactY,
+          thresholdSq,
+        );
+        if (splitOccurred) return;
+      } else if (e.shiftKey) {
+        // SHIFT-RIGHT-CLICK = DELETE NODE
+        const nodeDeleted = mapStore.deleteVectorNode(
+          coords.exactX,
+          coords.exactY,
+          thresholdSq,
+        );
+        if (nodeDeleted) return;
+      }
+    }
+
+    // Safety net: Also allow Alt-Left-Click to Delete Node
+    if (e.button === 0 && e.altKey && currentToolAction === "select") {
+      const coords = getGridCoordinates(e.clientX, e.clientY, false, "select");
       const thresholdSq = (15 / scale / coords.gridX) ** 2;
       const nodeDeleted = mapStore.deleteVectorNode(
         coords.exactX,
@@ -1135,7 +1200,10 @@
 
     if (
       e.button === 1 ||
-      (e.button === 2 && draftingPath.length === 0 && !e.altKey) ||
+      (e.button === 2 &&
+        draftingPath.length === 0 &&
+        !e.altKey &&
+        !e.shiftKey) ||
       (e.button === 0 && isSpacePressed)
     ) {
       isPanning = true;
@@ -1183,16 +1251,6 @@
       currentGridX = coords.snapX;
       currentGridY = coords.snapY;
 
-      if (e.altKey && currentToolAction === "select") {
-        const thresholdSq = (15 / scale / coords.gridX) ** 2;
-        const splitOccurred = mapStore.splitVectorNode(
-          coords.exactX,
-          coords.exactY,
-          thresholdSq,
-        );
-        if (splitOccurred) return;
-      }
-
       if (["wall", "portal", "roof"].includes(currentToolAction)) {
         draftingPath = [...draftingPath, { x: currentGridX, y: currentGridY }];
         drawDraftingLayer();
@@ -1213,6 +1271,7 @@
       if (currentToolAction === "select") {
         const manifest = activeMap.manifest;
         let closestItem = null;
+        let closestNodeIndex = null;
         let minGridDistSq = (15 / scale / coords.gridX) ** 2;
         const searchRange = {
           x: coords.exactX - 1,
@@ -1222,79 +1281,105 @@
         };
         const candidates = mapStore.quadtree?.retrieve(searchRange) || [];
 
-        const checkEntityCollision = (items, getPos) => {
+        // 1. Prioritize hitting individual nodes first!
+        const checkGeometryNodes = (items) => {
           for (const item of items) {
-            if (!candidates.find((c) => c.id === item.id)) continue;
-            const pos = getPos(item);
-            if (!pos || isNaN(pos.x) || isNaN(pos.y)) continue;
-            const distSq =
-              (coords.exactX - pos.x) ** 2 + (coords.exactY - pos.y) ** 2;
-            if (distSq < minGridDistSq) {
-              minGridDistSq = distSq;
-              closestItem = item;
-            }
-          }
-        };
-
-        const checkGeometryCollision = (items) => {
-          for (const item of items) {
-            const path = item.path || [];
-            if (path.length < 2) continue;
-            for (let i = 0; i < path.length - 1; i++) {
-              const x1 = Number(path[i].x);
-              const y1 = Number(path[i].y);
-              const x2 = Number(path[i + 1].x);
-              const y2 = Number(path[i + 1].y);
-              const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
-              if (l2 === 0) continue;
-              let t = Math.max(
-                0,
-                Math.min(
-                  1,
-                  ((coords.exactX - x1) * (x2 - x1) +
-                    (coords.exactY - y1) * (y2 - y1)) /
-                    l2,
-                ),
-              );
-              const projX = x1 + t * (x2 - x1);
-              const projY = y1 + t * (y2 - y1);
+            if (!item.path) continue;
+            for (let i = 0; i < item.path.length; i++) {
               const distSq =
-                (coords.exactX - projX) ** 2 + (coords.exactY - projY) ** 2;
+                (coords.exactX - Number(item.path[i].x)) ** 2 +
+                (coords.exactY - Number(item.path[i].y)) ** 2;
               if (distSq < minGridDistSq) {
                 minGridDistSq = distSq;
                 closestItem = item;
+                closestNodeIndex = i; // Save the specific node we hit!
               }
             }
           }
         };
 
-        checkEntityCollision(manifest.entities?.lights || [], (i) => ({
-          x: Number(i.position?.x),
-          y: Number(i.position?.y),
-        }));
-        checkEntityCollision(manifest.entities?.audio?.zones || [], (i) => ({
-          x: Number(i.center?.x),
-          y: Number(i.center?.y),
-        }));
-        checkEntityCollision(manifest.entities?.events || [], (i) => ({
-          x: Number(i.trigger_bounds?.center?.x),
-          y: Number(i.trigger_bounds?.center?.y),
-        }));
-        checkEntityCollision(manifest.entities?.landing_zones || [], (i) => ({
-          x: Number(i.coordinates?.[0]),
-          y: Number(i.coordinates?.[1]),
-        }));
-        checkEntityCollision(manifest.entities?.emitters || [], (i) => ({
-          x: Number(i.position?.x),
-          y: Number(i.position?.y),
-        }));
-        checkEntityCollision(manifest.entities?.props || [], (i) => ({
-          x: Number(i.position?.x),
-          y: Number(i.position?.y),
-        }));
-        checkGeometryCollision(manifest.geometry?.walls || []);
-        checkGeometryCollision(manifest.geometry?.portals || []);
-        checkGeometryCollision(manifest.geometry?.overhead || []);
+        checkGeometryNodes(manifest.geometry?.walls || []);
+        checkGeometryNodes(manifest.geometry?.portals || []);
+        checkGeometryNodes(manifest.geometry?.overhead || []);
+
+        draggedNodeIndex = closestNodeIndex;
+
+        // 2. If no node hit, check general entities and vector segments
+        if (!closestItem) {
+          const checkEntityCollision = (items, getPos) => {
+            for (const item of items) {
+              if (!candidates.find((c) => c.id === item.id)) continue;
+              const pos = getPos(item);
+              if (!pos || isNaN(pos.x) || isNaN(pos.y)) continue;
+              const distSq =
+                (coords.exactX - pos.x) ** 2 + (coords.exactY - pos.y) ** 2;
+              if (distSq < minGridDistSq) {
+                minGridDistSq = distSq;
+                closestItem = item;
+              }
+            }
+          };
+
+          const checkGeometrySegments = (items) => {
+            for (const item of items) {
+              const path = item.path || [];
+              if (path.length < 2) continue;
+              for (let i = 0; i < path.length - 1; i++) {
+                const x1 = Number(path[i].x);
+                const y1 = Number(path[i].y);
+                const x2 = Number(path[i + 1].x);
+                const y2 = Number(path[i + 1].y);
+                const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
+                if (l2 === 0) continue;
+                let t = Math.max(
+                  0,
+                  Math.min(
+                    1,
+                    ((coords.exactX - x1) * (x2 - x1) +
+                      (coords.exactY - y1) * (y2 - y1)) /
+                      l2,
+                  ),
+                );
+                const projX = x1 + t * (x2 - x1);
+                const projY = y1 + t * (y2 - y1);
+                const distSq =
+                  (coords.exactX - projX) ** 2 + (coords.exactY - projY) ** 2;
+                if (distSq < minGridDistSq) {
+                  minGridDistSq = distSq;
+                  closestItem = item;
+                }
+              }
+            }
+          };
+
+          checkEntityCollision(manifest.entities?.lights || [], (i) => ({
+            x: Number(i.position?.x),
+            y: Number(i.position?.y),
+          }));
+          checkEntityCollision(manifest.entities?.audio?.zones || [], (i) => ({
+            x: Number(i.center?.x),
+            y: Number(i.center?.y),
+          }));
+          checkEntityCollision(manifest.entities?.events || [], (i) => ({
+            x: Number(i.trigger_bounds?.center?.x),
+            y: Number(i.trigger_bounds?.center?.y),
+          }));
+          checkEntityCollision(manifest.entities?.landing_zones || [], (i) => ({
+            x: Number(i.coordinates?.[0]),
+            y: Number(i.coordinates?.[1]),
+          }));
+          checkEntityCollision(manifest.entities?.emitters || [], (i) => ({
+            x: Number(i.position?.x),
+            y: Number(i.position?.y),
+          }));
+          checkEntityCollision(manifest.entities?.props || [], (i) => ({
+            x: Number(i.position?.x),
+            y: Number(i.position?.y),
+          }));
+          checkGeometrySegments(manifest.geometry?.walls || []);
+          checkGeometrySegments(manifest.geometry?.portals || []);
+          checkGeometrySegments(manifest.geometry?.overhead || []);
+        }
 
         if (closestItem) {
           const isMulti = isTempSelect
@@ -1379,13 +1464,25 @@
     if (draggedItemId && currentToolAction === "select" && lastDragGrid) {
       const dx = currentGridX - lastDragGrid.x;
       const dy = currentGridY - lastDragGrid.y;
-      mapStore.updateNodePosition(
-        draggedItemId,
-        currentGridX,
-        currentGridY,
-        dx,
-        dy,
-      );
+
+      // FIX: Move the specific single node if we grabbed one, otherwise move the whole path
+      if (draggedNodeIndex !== null) {
+        mapStore.updateSingleNodePosition(
+          draggedItemId,
+          draggedNodeIndex,
+          currentGridX,
+          currentGridY,
+        );
+      } else {
+        mapStore.updateNodePosition(
+          draggedItemId,
+          currentGridX,
+          currentGridY,
+          dx,
+          dy,
+        );
+      }
+
       lastDragGrid = { x: currentGridX, y: currentGridY };
     }
   }
@@ -1398,6 +1495,7 @@
 
     isPanning = false;
     draggedItemId = null;
+    draggedNodeIndex = null; // Clear dragging state
     lastDragGrid = null;
 
     // --- COMMIT GRID ALIGNMENT BOX OR CLICK ---
