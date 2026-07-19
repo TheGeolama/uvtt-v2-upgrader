@@ -6,6 +6,10 @@ on:
       - main # Or master, change to match your branch
   workflow_dispatch:
 
+env:
+  # Fallback safety net to force any lingering Node 20 actions onto Node 24
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
@@ -25,16 +29,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm" # Automatically caches node_modules for speed
 
       - name: Install Dependencies
-        run: npm ci # Uses package-lock.json for a clean, deterministic install
+        run: npm ci
 
       - name: Build Web App
         run: npm run build
@@ -42,7 +46,7 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=4096"
 
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Upload Artifact
         uses: actions/upload-pages-artifact@v3
