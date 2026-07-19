@@ -1,63 +1,55 @@
-name: Build uvtt-v2-upgrader
+name: Deploy Web Upgrader
 
 on:
   push:
     branches:
-      - main # <-- Add this to trigger on regular pushes to main
-    tags:
-      - "v*"
-  workflow_dispatch: # Gives you a manual "Run workflow" button in GitHub UI
+      - main # Or master, change to match your branch
+  workflow_dispatch:
 
-env:
-  # Prevents Svelte/Vite frontend builds from OOM crashing on GitHub runners
-  NODE_OPTIONS: "--max-old-space-size=4096"
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        build:
-          - os: ubuntu-latest
-            platform: linux/amd64
-          - os: windows-latest
-            platform: windows/amd64
-          - os: macos-latest
-            platform: darwin/universal
-
-    runs-on: ${{ matrix.build.os }}
-
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.22" # Update this if your go.mod requires a newer version
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "npm" # Automatically caches node_modules for speed
 
-      - name: Install Linux Dependencies
-        if: runner.os == 'Linux'
-        # Ubuntu 24.04+ strictly requires libwebkit2gtk-4.1-dev
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libgtk-3-dev libwebkit2gtk-4.1-dev
+      - name: Install Dependencies
+        run: npm ci # Uses package-lock.json for a clean, deterministic install
 
-      - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+      - name: Build Web App
+        run: npm run build
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
 
-      - name: Build Wails App
-        # On Windows, you can append -nsis if you want it to package a setup installer
-        run: wails build -clean -platform ${{ matrix.build.platform }}
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+      - name: Upload Artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: uvtt-v2-upgrader-${{ matrix.build.os }}
-          path: build/bin/
-          retention-days: 7
+          # Assumes Vite builds to the 'dist' folder. Change to 'build' or 'public' if needed.
+          path: "./dist"
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
