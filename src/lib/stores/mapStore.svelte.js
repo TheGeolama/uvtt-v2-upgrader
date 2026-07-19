@@ -287,7 +287,6 @@ class MapStore {
         const res = this.activeMap.manifest.resolution;
         const oldPpg = Number(res.pixels_per_grid) || 70;
         
-        // Fix: Maintain absolute image size in pixels so the map doesn't scale WITH the grid!
         const pixelWidth = res.map_size[0] * oldPpg;
         const pixelHeight = res.map_size[1] * oldPpg;
         
@@ -299,8 +298,34 @@ class MapStore {
         res.map_offset_y = -modY;
 
         this.gridAlignBoxes = []; // Clear visualizer
-        this.setTool('select');   // Eject from the tool
         this.pushHistory("Rubber Sheet Grid Alignment");
+        this.updateTrigger++;
+    }
+
+    updateManualGrid(newPpg, offX, offY) {
+        if (!this.activeMap) return;
+        const res = this.activeMap.manifest.resolution;
+        const oldPpg = Number(res.pixels_per_grid) || 70;
+        
+        // Preserve image size in absolute pixels so the image doesn't scale weirdly
+        const pixelWidth = res.map_size[0] * oldPpg;
+        const pixelHeight = res.map_size[1] * oldPpg;
+
+        if (newPpg !== null && !isNaN(newPpg) && newPpg > 0) {
+            res.pixels_per_grid = Number(newPpg);
+            res.map_size[0] = pixelWidth / res.pixels_per_grid;
+            res.map_size[1] = pixelHeight / res.pixels_per_grid;
+        }
+
+        if (offX !== null && !isNaN(offX)) {
+            res.map_offset_x = Number(offX);
+        }
+
+        if (offY !== null && !isNaN(offY)) {
+            res.map_offset_y = Number(offY);
+        }
+
+        this.pushHistory("Manual Grid Adjustment");
         this.updateTrigger++;
     }
 
@@ -766,6 +791,54 @@ class MapStore {
         this.updateSpatialIndex();
     }
 
+    // --- LIGHTWEIGHT BINARY EXIF/pHYs DPI EXTRACTOR ---
+    async extractDPI(file) {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const view = new DataView(e.target.result);
+                try {
+                    // Check for JPEG (FF D8)
+                    if (view.getUint16(0) === 0xFFD8) {
+                        let offset = 2;
+                        while (offset < view.byteLength) {
+                            const marker = view.getUint16(offset);
+                            const len = view.getUint16(offset + 2);
+                            if (marker === 0xFFE0) { // APP0 JFIF Marker
+                                if (view.getUint32(offset + 4) === 0x4A464946) {
+                                    const units = view.getUint8(offset + 11);
+                                    const xDen = view.getUint16(offset + 12);
+                                    if (units === 1 && xDen > 10) return resolve(xDen); // DPI
+                                    if (units === 2 && xDen > 10) return resolve(Math.round(xDen * 2.54)); // DPCM to DPI
+                                }
+                            }
+                            offset += len + 2;
+                        }
+                    } 
+                    // Check for PNG (89 50 4E 47)
+                    else if (view.getUint32(0) === 0x89504E47) {
+                        let offset = 8;
+                        while (offset < view.byteLength) {
+                            const len = view.getUint32(offset);
+                            const type = view.getUint32(offset + 4);
+                            if (type === 0x70485973) { // 'pHYs' Chunk
+                                const ppuX = view.getUint32(offset + 8);
+                                const unit = view.getUint8(offset + 16);
+                                if (unit === 1 && ppuX > 10) return resolve(Math.round(ppuX * 0.0254)); // Pixels per meter to DPI
+                            }
+                            offset += len + 12;
+                        }
+                    }
+                } catch(err) {
+                    console.warn("DPI Extraction skipped:", err);
+                }
+                resolve(70); // Default fallback if no valid tag found
+            };
+            // Read only the first 64KB for speed
+            reader.readAsArrayBuffer(file.slice(0, 65536));
+        });
+    }
+
     async importImageAsMap(file) {
         try {
             // Read file into Base64 for Canvas & Go Backend
@@ -776,6 +849,10 @@ class MapStore {
                 reader.readAsDataURL(file);
             });
 
+            // Extract native DPI from the binary image headers
+            const detectedPpg = await this.extractDPI(file);
+            const ppg = isNaN(detectedPpg) ? 70 : detectedPpg; 
+
             // Get intrinsic image dimensions to build the grid
             const img = new Image();
             await new Promise((resolve, reject) => {
@@ -784,7 +861,6 @@ class MapStore {
                 img.src = dataUrl;
             });
 
-            const ppg = 70; // Default Pixels Per Grid
             const mapWidth = Math.ceil(img.width / ppg);
             const mapHeight = Math.ceil(img.height / ppg);
 

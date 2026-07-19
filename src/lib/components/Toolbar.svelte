@@ -799,18 +799,70 @@
               style="border-color: rgba(34, 197, 94, 0.4); background: rgba(34, 197, 94, 0.02);"
             >
               <h3 style="color: #22c55e;">📐 GRID RUBBER SHEETING</h3>
+
+              <div
+                style="margin-bottom: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;"
+              >
+                <label
+                  style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; grid-column: span 2;"
+                >
+                  Grid Size (DPI)
+                  <input
+                    type="number"
+                    value={mapStore.activeMap?.manifest?.resolution
+                      ?.pixels_per_grid || 70}
+                    onchange={(e) =>
+                      mapStore.updateManualGrid(
+                        parseFloat(e.target.value),
+                        null,
+                        null,
+                      )}
+                    style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
+                  />
+                </label>
+                <label
+                  style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px;"
+                >
+                  X Offset (px)
+                  <input
+                    type="number"
+                    value={mapStore.activeMap?.manifest?.resolution
+                      ?.map_offset_x || 0}
+                    onchange={(e) =>
+                      mapStore.updateManualGrid(
+                        null,
+                        parseFloat(e.target.value),
+                        null,
+                      )}
+                    style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
+                  />
+                </label>
+                <label
+                  style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px;"
+                >
+                  Y Offset (px)
+                  <input
+                    type="number"
+                    value={mapStore.activeMap?.manifest?.resolution
+                      ?.map_offset_y || 0}
+                    onchange={(e) =>
+                      mapStore.updateManualGrid(
+                        null,
+                        null,
+                        parseFloat(e.target.value),
+                      )}
+                    style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
+                  />
+                </label>
+              </div>
+
               <p
                 class="helper-text"
                 style="margin-bottom: 12px; font-size: 12px; line-height: 1.4;"
               >
-                1. Drag green bounding boxes perfectly over <strong
-                  >1x1 grid squares</strong
-                >
-                baked into the map image.<br /><br />
-                2. The more boxes you draw, the better the statistical alignment
-                fit.<br /><br />
-                3. The engine uses your <strong>first box</strong> to anchor the
-                grid offset.
+                <strong>Auto-Alignment:</strong> Drag green bounding boxes over the
+                1x1 grid squares in the image. We will average them to find the true
+                fractional scale.
               </p>
 
               <div style="display: flex; flex-direction: column; gap: 8px;">
