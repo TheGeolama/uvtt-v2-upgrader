@@ -185,13 +185,20 @@
   async function handleImportLevel(e) {
     const file = e.target.files[0];
     if (!file) return;
-    try {
-      const text = await file.text();
-      const parsedMap = upgradeLegacyMap(text, file.name);
-      if (parsedMap) mapStore.appendLevel(parsedMap);
-    } catch (err) {
-      console.error(err);
-      alert("Failed to import level");
+
+    const ext = file.name.split(".").pop().toLowerCase();
+
+    if (["png", "jpg", "jpeg", "webp"].includes(ext)) {
+      await mapStore.importImageAsMap(file);
+    } else {
+      try {
+        const text = await file.text();
+        const parsedMap = upgradeLegacyMap(text, file.name);
+        if (parsedMap) mapStore.appendLevel(parsedMap);
+      } catch (err) {
+        console.error(err);
+        alert("Failed to import level");
+      }
     }
     e.target.value = null;
   }
@@ -251,12 +258,12 @@
       </button>
       <label
         class="icon-btn wave import-btn"
-        title="Import Legacy Floor (.dd2vtt)"
+        title="Import Map (.dd2vtt, .png, .jpg, .webp)"
       >
         📥
         <input
           type="file"
-          accept=".dd2vtt,.uvtt,.json,.txt"
+          accept=".dd2vtt,.uvtt,.json,.txt,.png,.jpg,.jpeg,.webp"
           style="display: none;"
           onchange={handleImportLevel}
         />
@@ -857,7 +864,6 @@
                 />
               </label>
             </div>
-
             <!-- 🤖 SMART GEOMETRY AUTO-WALL CONTAINER -->
             {#if isDesktopPro && selectedItems.length === 0}
               <div
