@@ -208,6 +208,9 @@ class MapStore {
     mouseX = $state(0.00);
     mouseY = $state(0.00);
     zoomScale = $state(100);
+    
+    // --- GRID ALIGNMENT STATE ---
+    gridAlignBoxes = $state([]);
 
     // --- VISION CONTROLLER STATE ---
     vision = $state({
@@ -248,6 +251,55 @@ class MapStore {
 
     get activeMap() { return this.catalog.find(m => m.id === this.activeMapId) || null; }
     get redrawTick() { return this.updateTrigger; }
+
+    // --- GRID ALIGNMENT CONTROLLER ---
+    calculateGridAlignment() {
+        if (!this.activeMap || this.gridAlignBoxes.length === 0) return;
+        const boxes = this.gridAlignBoxes;
+        
+        let sumSize = 0;
+        let validCount = 0;
+
+        // Average out all drawn boxes to find the true fractional scale
+        boxes.forEach(b => {
+            const w = Math.abs(b.ex - b.sx);
+            const h = Math.abs(b.ey - b.sy);
+            if (w > 10 && h > 10) {
+                sumSize += (w + h) / 2;
+                validCount++;
+            }
+        });
+
+        if (validCount === 0) {
+            this.gridAlignBoxes = [];
+            return;
+        }
+
+        const newPpg = Math.max(10, sumSize / validCount);
+        
+        // Use the top-left corner of the VERY FIRST box drawn as the origin anchor
+        const anchorX = Math.min(boxes[0].sx, boxes[0].ex);
+        const anchorY = Math.min(boxes[0].sy, boxes[0].ey);
+
+        // Calculate offset to ensure the grid intersection lands exactly on the anchor
+        const modX = ((anchorX % newPpg) + newPpg) % newPpg;
+        const modY = ((anchorY % newPpg) + newPpg) % newPpg;
+        
+        const res = this.activeMap.manifest.resolution;
+        res.pixels_per_grid = newPpg;
+        res.map_offset_x = -modX;
+        res.map_offset_y = -modY;
+
+        this.gridAlignBoxes = []; // Clear visualizer
+        this.setTool('select');   // Eject from the tool
+        this.pushHistory("Rubber Sheet Grid Alignment");
+        this.updateTrigger++;
+    }
+
+    clearGridAlignment() {
+        this.gridAlignBoxes = [];
+        this.updateTrigger++;
+    }
 
     // --- VISION CONTROLLER METHODS ---
     toggleVision() {
@@ -687,7 +739,13 @@ class MapStore {
             id: newId,
             filename: `Level ${this.catalog.length + 1}`,
             manifest: {
-                resolution: { pixels_per_grid: 70, grid_line_width: 1.5, subgrid_line_width: 1.0 },
+                resolution: { 
+                    map_origin: [0, 0],
+                    map_size: [50, 50],
+                    pixels_per_grid: 70, 
+                    grid_line_width: 1.5, 
+                    subgrid_line_width: 1.0 
+                },
                 geometry: { walls: [], portals: [], overhead: [] },
                 entities: { lights: [], landing_zones: [], events: [], emitters: [], audio: { zones: [] }, props: [] }
             },
@@ -781,6 +839,9 @@ class MapStore {
     setTool(tool) {
         this.activeTool = tool;
         this.selectedItemIds = [];
+        if (tool !== 'grid_align') {
+            this.gridAlignBoxes = [];
+        }
         this.updateTrigger++;
     }
 
@@ -1399,56 +1460,6 @@ class MapStore {
     duplicateSelected() {
         this.copySelected();
         this.pasteClipboard(0, 0);
-    }
-
-    // --- GLOBAL ASSET LIBRARY BRIDGE ---
-    async mountAssetLibrary() {
-        if (window.go && window.go.main && window.go.main.App && window.go.main.App.SelectAssetDirectory) {
-            try {
-                const assets = await window.go.main.App.SelectAssetDirectory();
-                if (assets && assets.length > 0) {
-                    const images = assets.filter(a => a.type === 'image');
-                    const audio = assets.filter(a => a.type === 'audio');
-                    this.globalAssets = { images, audio };
-
-                    const audioPromises = audio.map(async (a) => {
-                        try {
-                            const res = await fetch(a.data);
-                            const blob = await res.blob();
-                            this.audioBlobs[a.name] = blob;
-                        } catch (e) {
-                            console.error(`Failed to fetch local audio: ${a.name}`);
-                        }
-                    });
-                    
-                    await Promise.all(audioPromises);
-                    this.updateTrigger++;
-                }
-            } catch (err) {
-                console.error("Failed to load asset directory:", err);
-            }
-        } else {
-            alert("Asset Library requires the native Wails Desktop build running.");
-        }
-    }
-
-    addProp(x, y, imageURL, name) {
-        const activeMap = this.activeMap;
-        if (!activeMap) return;
-        const ds = this.defaultSettings.prop;
-        const prop = {
-            id: crypto.randomUUID(),
-            name: name,
-            image: imageURL,
-            position: { x, y, z: ds.position.z },
-            rotation: ds.rotation,
-            scale: ds.scale
-        };
-        if (!activeMap.manifest.entities.props) activeMap.manifest.entities.props = [];
-        activeMap.manifest.entities.props.push(prop);
-        this.pushHistory("Added Prop Asset");
-        this.updateSpatialIndex();
-        this.updateTrigger++;
     }
 }
 

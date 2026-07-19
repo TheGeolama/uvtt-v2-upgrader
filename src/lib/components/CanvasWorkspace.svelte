@@ -33,6 +33,12 @@
   let boxSelectEnd = null;
   let boxSelectGfx = null;
 
+  // --- GRID ALIGNMENT STATE ---
+  let isGridAligning = false;
+  let alignBoxStart = null;
+  let alignBoxEnd = null;
+  let alignBoxGfx = null;
+
   let activeMap = $derived(mapStore.activeMap);
   let activeTool = $derived(mapStore.activeTool);
   let lightingPreview = $derived(mapStore.lightingPreview);
@@ -483,6 +489,7 @@
     });
 
     drawDraftingLayer();
+    drawGridAlignBoxes();
     if (vision?.enabled)
       drawVisionLoS(manifest, originX, originY, gridSize, mapWidth, mapHeight);
     else if (lightingPreview)
@@ -521,6 +528,53 @@
       );
       boxSelectGfx.fill({ color: 0x00f0ff, alpha: 0.1 });
       boxSelectGfx.stroke({ width: 1, color: 0x00f0ff, alpha: 0.8 });
+    }
+  }
+
+  function drawGridAlignBoxes() {
+    if (!geometryContainer || !activeMap) return;
+    if (alignBoxGfx) {
+      alignBoxGfx.destroy();
+      alignBoxGfx = null;
+    }
+
+    if (
+      mapStore.gridAlignBoxes.length > 0 ||
+      (isGridAligning && alignBoxStart && alignBoxEnd)
+    ) {
+      alignBoxGfx = new PIXI.Graphics();
+      geometryContainer.addChild(alignBoxGfx);
+
+      const res = activeMap.manifest.resolution;
+      const offX = Number(res.map_offset_x) || 0;
+      const offY = Number(res.map_offset_y) || 0;
+
+      mapStore.gridAlignBoxes.forEach((b) => {
+        alignBoxGfx.rect(
+          Math.min(b.sx, b.ex) + offX,
+          Math.min(b.sy, b.ey) + offY,
+          Math.abs(b.ex - b.sx),
+          Math.abs(b.ey - b.sy),
+        );
+        alignBoxGfx.fill({ color: 0x22c55e, alpha: 0.2 });
+        alignBoxGfx.stroke({ width: 2, color: 0x22c55e, alpha: 0.8 });
+      });
+
+      if (isGridAligning && alignBoxStart && alignBoxEnd) {
+        alignBoxGfx.rect(
+          Math.min(alignBoxStart.x, alignBoxEnd.x) + offX,
+          Math.min(alignBoxStart.y, alignBoxEnd.y) + offY,
+          Math.abs(alignBoxEnd.x - alignBoxStart.x),
+          Math.abs(alignBoxEnd.y - alignBoxStart.y),
+        );
+        alignBoxGfx.fill({ color: 0xeab308, alpha: 0.3 });
+        alignBoxGfx.stroke({
+          width: 2,
+          color: 0xeab308,
+          alpha: 0.9,
+          dash: [5, 5],
+        });
+      }
     }
   }
 
@@ -576,6 +630,234 @@
       else gfx.lineTo(px, py);
     }
     if (closePath && path.length > 2) gfx.closePath();
+  }
+
+  // --- CORE MATH HELPERS ---
+  function buildCollisionSegments(
+    manifest,
+    originX,
+    originY,
+    gridSize,
+    mapWidth,
+    mapHeight,
+  ) {
+    const segments = [];
+    segments.push({ p1: { x: 0, y: 0 }, p2: { x: mapWidth, y: 0 } });
+    segments.push({
+      p1: { x: mapWidth, y: 0 },
+      p2: { x: mapWidth, y: mapHeight },
+    });
+    segments.push({
+      p1: { x: mapWidth, y: mapHeight },
+      p2: { x: 0, y: mapHeight },
+    });
+    segments.push({ p1: { x: 0, y: mapHeight }, p2: { x: 0, y: 0 } });
+
+    (manifest.geometry?.walls || []).forEach((w) => {
+      if (!w.path || w.path.length < 2 || w.properties?.type === "invisible")
+        return;
+      for (let i = 0; i < w.path.length - 1; i++) {
+        segments.push({
+          p1: {
+            x: (w.path[i].x - originX) * gridSize,
+            y: (w.path[i].y - originY) * gridSize,
+          },
+          p2: {
+            x: (w.path[i + 1].x - originX) * gridSize,
+            y: (w.path[i + 1].y - originY) * gridSize,
+          },
+        });
+      }
+    });
+
+    (manifest.geometry?.portals || []).forEach((p) => {
+      if (!p.path || p.path.length < 2 || p.properties?.state === "open")
+        return;
+      for (let i = 0; i < p.path.length - 1; i++) {
+        segments.push({
+          p1: {
+            x: (p.path[i].x - originX) * gridSize,
+            y: (p.path[i].y - originY) * gridSize,
+          },
+          p2: {
+            x: (p.path[i + 1].x - originX) * gridSize,
+            y: (p.path[i + 1].y - originY) * gridSize,
+          },
+        });
+      }
+    });
+    return segments;
+  }
+
+  function calculateVisibilityPolygon(ox, oy, radius, segments) {
+    const angles = [];
+    for (const seg of segments) {
+      const minX = Math.min(seg.p1.x, seg.p2.x),
+        maxX = Math.max(seg.p1.x, seg.p2.x);
+      const minY = Math.min(seg.p1.y, seg.p2.y),
+        maxY = Math.max(seg.p1.y, seg.p2.y);
+      if (
+        maxX < ox - radius ||
+        minX > ox + radius ||
+        maxY < oy - radius ||
+        minY > oy + radius
+      )
+        continue;
+
+      const a1 = Math.atan2(seg.p1.y - oy, seg.p1.x - ox);
+      const a2 = Math.atan2(seg.p2.y - oy, seg.p2.x - ox);
+
+      angles.push(a1 - 0.0001, a1, a1 + 0.0001);
+      angles.push(a2 - 0.0001, a2, a2 + 0.0001);
+    }
+
+    const intersects = [];
+    for (let a of angles) {
+      const normA = Math.atan2(Math.sin(a), Math.cos(a));
+      const dx = Math.cos(normA),
+        dy = Math.sin(normA);
+      const r_dx = dx * radius,
+        r_dy = dy * radius;
+
+      let minT1 = 1;
+      let intersectPt = { x: ox + r_dx, y: oy + r_dy, angle: normA };
+
+      for (const seg of segments) {
+        const s_dx = seg.p2.x - seg.p1.x,
+          s_dy = seg.p2.y - seg.p1.y;
+        const T2 = r_dx * s_dy - r_dy * s_dx;
+        if (T2 === 0) continue;
+
+        const T1 = (seg.p1.x - ox) * s_dy - (seg.p1.y - oy) * s_dx;
+        const t1 = T1 / T2;
+        const t2 = ((seg.p1.x - ox) * r_dy - (seg.p1.y - oy) * r_dx) / T2;
+
+        if (t1 > 0 && t1 < minT1 && t2 >= 0 && t2 <= 1) {
+          minT1 = t1;
+          intersectPt = { x: ox + r_dx * t1, y: oy + r_dy * t1, angle: normA };
+        }
+      }
+      intersects.push(intersectPt);
+    }
+
+    intersects.sort((a, b) => a.angle - b.angle);
+    return intersects;
+  }
+
+  function drawVisionLoS(
+    manifest,
+    originX,
+    originY,
+    gridSize,
+    mapWidth,
+    mapHeight,
+  ) {
+    const shadowGfx = new PIXI.Graphics();
+    shadowContainer.addChild(shadowGfx);
+    const segments = buildCollisionSegments(
+      manifest,
+      originX,
+      originY,
+      gridSize,
+      mapWidth,
+      mapHeight,
+    );
+
+    shadowGfx
+      .moveTo(0, 0)
+      .lineTo(mapWidth, 0)
+      .lineTo(mapWidth, mapHeight)
+      .lineTo(0, mapHeight)
+      .closePath();
+
+    const tx = (vision.token.x - originX) * gridSize;
+    const ty = (vision.token.y - originY) * gridSize;
+    const radius = (vision.token.radius || 20) * gridSize;
+
+    const intersects = calculateVisibilityPolygon(tx, ty, radius, segments);
+
+    if (intersects.length > 0) {
+      shadowGfx.moveTo(
+        intersects[intersects.length - 1].x,
+        intersects[intersects.length - 1].y,
+      );
+      for (let i = intersects.length - 2; i >= 0; i--) {
+        shadowGfx.lineTo(intersects[i].x, intersects[i].y);
+      }
+      shadowGfx.closePath();
+    }
+
+    shadowGfx.fill({ color: 0x000000, alpha: 0.92 });
+    const tokenGfx = new PIXI.Graphics();
+    shadowContainer.addChild(tokenGfx);
+    tokenGfx
+      .circle(tx, ty, gridSize * 0.4)
+      .fill({ color: 0x3b82f6, alpha: 0.8 })
+      .stroke({ width: 3, color: 0xffffff, alpha: 1 });
+    tokenGfx.circle(tx, ty, gridSize * 0.1).fill({ color: 0xffffff });
+  }
+
+  function drawDynamicLighting(
+    manifest,
+    originX,
+    originY,
+    gridSize,
+    mapWidth,
+    mapHeight,
+  ) {
+    const shadowGfx = new PIXI.Graphics();
+    shadowContainer.addChild(shadowGfx);
+    const segments = buildCollisionSegments(
+      manifest,
+      originX,
+      originY,
+      gridSize,
+      mapWidth,
+      mapHeight,
+    );
+    shadowGfx
+      .moveTo(0, 0)
+      .lineTo(mapWidth, 0)
+      .lineTo(mapWidth, mapHeight)
+      .lineTo(0, mapHeight)
+      .closePath();
+
+    (manifest.entities?.lights || []).forEach((light) => {
+      const lx = (Number(light.position?.x) - originX) * gridSize;
+      const ly = (Number(light.position?.y) - originY) * gridSize;
+      if (isNaN(lx) || isNaN(ly)) return;
+      const radius = (Number(light.properties?.radius?.dim) || 10) * gridSize;
+      const intersects = calculateVisibilityPolygon(lx, ly, radius, segments);
+
+      if (intersects.length > 0) {
+        if (light.type === "directional") {
+          const rot =
+            (Number(light.properties?.rotation) || 0) * (Math.PI / 180);
+          const cone =
+            (Number(light.properties?.cone_angle) || 60) * (Math.PI / 180);
+          shadowGfx.moveTo(lx, ly);
+          for (let i = intersects.length - 1; i >= 0; i--) {
+            let diff = Math.atan2(
+              Math.sin(intersects[i].angle - rot),
+              Math.cos(intersects[i].angle - rot),
+            );
+            if (Math.abs(diff) <= cone / 2 + 0.001)
+              shadowGfx.lineTo(intersects[i].x, intersects[i].y);
+          }
+          shadowGfx.lineTo(lx, ly);
+          shadowGfx.closePath();
+        } else {
+          shadowGfx.moveTo(
+            intersects[intersects.length - 1].x,
+            intersects[intersects.length - 1].y,
+          );
+          for (let i = intersects.length - 2; i >= 0; i--)
+            shadowGfx.lineTo(intersects[i].x, intersects[i].y);
+          shadowGfx.closePath();
+        }
+      }
+    });
+    shadowGfx.fill({ color: 0x000000, alpha: 0.85 });
   }
 
   // --- STRICT VECTOR AND CENTER SNAPPING MATH ---
@@ -721,6 +1003,7 @@
 
   function handlePointerDown(e) {
     if (!viewportContainer || !activeMap) return;
+
     if (e.button === 0 && vision?.enabled) {
       const coords = getGridCoordinates(e.clientX, e.clientY, false, "select");
       const distSq =
@@ -731,6 +1014,7 @@
         return;
       }
     }
+
     if (e.button === 2 && e.altKey && draftingPath.length === 0) {
       const coords = getGridCoordinates(
         e.clientX,
@@ -746,6 +1030,7 @@
       );
       if (nodeDeleted) return;
     }
+
     if (
       e.button === 1 ||
       (e.button === 2 && draftingPath.length === 0 && !e.altKey) ||
@@ -756,6 +1041,7 @@
       originalPan = { x: panX, y: panY };
       return;
     }
+
     if (e.button === 2 && draftingPath.length > 1) {
       mapStore.addGeometry(activeTool, [...draftingPath]);
       draftingPath = [];
@@ -763,16 +1049,36 @@
       drawDraftingLayer();
       return;
     }
+
     if (e.button === 0) {
       const isTempSelect = (e.ctrlKey || e.metaKey) && activeTool !== "select";
       const currentToolAction = isTempSelect ? "select" : activeTool;
+
+      // --- GRID ALIGNMENT INTERCEPT ---
+      if (currentToolAction === "grid_align") {
+        const rect = canvasContainer.getBoundingClientRect();
+        const rawX = e.clientX - rect.left;
+        const rawY = e.clientY - rect.top;
+        const worldX = (rawX - panX) / scale;
+        const worldY = (rawY - panY) / scale;
+
+        const res = activeMap.manifest.resolution;
+        const currentOffX = Number(res.map_offset_x) || 0;
+        const currentOffY = Number(res.map_offset_y) || 0;
+
+        isGridAligning = true;
+        // Record positions relative to the raw image (world position minus current offset)
+        alignBoxStart = { x: worldX - currentOffX, y: worldY - currentOffY };
+        alignBoxEnd = { x: worldX - currentOffX, y: worldY - currentOffY };
+        return;
+      }
+
       const coords = getGridCoordinates(
         e.clientX,
         e.clientY,
         e.shiftKey,
         currentToolAction,
       );
-
       currentGridX = coords.snapX;
       currentGridY = coords.snapY;
 
@@ -931,6 +1237,23 @@
       return;
     }
 
+    // --- GRID ALIGNMENT VISUALS ---
+    if (isGridAligning) {
+      const rect = canvasContainer.getBoundingClientRect();
+      const rawX = e.clientX - rect.left;
+      const rawY = e.clientY - rect.top;
+      const worldX = (rawX - panX) / scale;
+      const worldY = (rawY - panY) / scale;
+
+      const res = activeMap.manifest.resolution;
+      const currentOffX = Number(res.map_offset_x) || 0;
+      const currentOffY = Number(res.map_offset_y) || 0;
+
+      alignBoxEnd = { x: worldX - currentOffX, y: worldY - currentOffY };
+      drawGridAlignBoxes();
+      return;
+    }
+
     currentGridX = coords.snapX;
     currentGridY = coords.snapY;
     if (isBoxSelecting) {
@@ -967,6 +1290,27 @@
     isPanning = false;
     draggedItemId = null;
     lastDragGrid = null;
+
+    // --- COMMIT GRID ALIGNMENT BOX ---
+    if (isGridAligning && alignBoxStart && alignBoxEnd) {
+      if (
+        Math.abs(alignBoxEnd.x - alignBoxStart.x) > 5 &&
+        Math.abs(alignBoxEnd.y - alignBoxStart.y) > 5
+      ) {
+        mapStore.gridAlignBoxes.push({
+          sx: alignBoxStart.x,
+          sy: alignBoxStart.y,
+          ex: alignBoxEnd.x,
+          ey: alignBoxEnd.y,
+        });
+        mapStore.updateTrigger++; // Force Svelte to react to the new array item
+      }
+      isGridAligning = false;
+      alignBoxStart = null;
+      alignBoxEnd = null;
+      drawGridAlignBoxes();
+      return;
+    }
 
     if (isBoxSelecting && boxSelectStart && boxSelectEnd) {
       const minX = Math.min(boxSelectStart.x, boxSelectEnd.x);
@@ -1069,7 +1413,16 @@
       mapStore.duplicateSelected();
     }
     if (e.key === "Escape") {
-      if (isBoxSelecting) {
+      if (isGridAligning || mapStore.gridAlignBoxes.length > 0) {
+        isGridAligning = false;
+        alignBoxStart = null;
+        alignBoxEnd = null;
+        mapStore.clearGridAlignment();
+        if (alignBoxGfx) {
+          alignBoxGfx.destroy();
+          alignBoxGfx = null;
+        }
+      } else if (isBoxSelecting) {
         isBoxSelecting = false;
         boxSelectStart = null;
         boxSelectEnd = null;
@@ -1109,7 +1462,9 @@
   role="application"
   class="pixi-workspace {isSpacePressed && !isPanning
     ? 'space-pressed'
-    : ''} {isPanning ? 'is-panning' : ''}"
+    : ''} {isPanning ? 'is-panning' : ''} {activeTool === 'grid_align'
+    ? 'grid-align-mode'
+    : ''}"
   ondragover={(e) => e.preventDefault()}
   ondragenter={(e) => e.preventDefault()}
   ondrop={handleDrop}
@@ -1137,5 +1492,8 @@
   }
   .pixi-workspace.is-panning {
     cursor: grabbing !important;
+  }
+  .pixi-workspace.grid-align-mode {
+    cursor: cell;
   }
 </style>

@@ -299,6 +299,12 @@
         >
           <span>🌳</span> Roof
         </button>
+        <button
+          class={activeTool === "grid_align" ? "active" : ""}
+          onclick={() => mapStore.setTool("grid_align")}
+        >
+          📐 Align Grid
+        </button>
       </div>
 
       <div class="tool-group">
@@ -786,6 +792,46 @@
                   )}
               />
             </label>
+            <!-- ALIGN GRID SETTINGS -->
+          {:else if activeTool === "grid_align"}
+            <div
+              class="panel-section"
+              style="border-color: rgba(34, 197, 94, 0.4); background: rgba(34, 197, 94, 0.02);"
+            >
+              <h3 style="color: #22c55e;">📐 GRID RUBBER SHEETING</h3>
+              <p
+                class="helper-text"
+                style="margin-bottom: 12px; font-size: 12px; line-height: 1.4;"
+              >
+                1. Drag green bounding boxes perfectly over <strong
+                  >1x1 grid squares</strong
+                >
+                baked into the map image.<br /><br />
+                2. The more boxes you draw, the better the statistical alignment
+                fit.<br /><br />
+                3. The engine uses your <strong>first box</strong> to anchor the
+                grid offset.
+              </p>
+
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <button
+                  class="action-btn wave"
+                  style="justify-content: center; font-weight: bold; border-color: #22c55e; color: #22c55e;"
+                  onclick={() => mapStore.calculateGridAlignment()}
+                  disabled={mapStore.gridAlignBoxes.length === 0}
+                >
+                  ✅ Apply Best Fit Grid
+                </button>
+                <button
+                  class="action-btn"
+                  style="justify-content: center;"
+                  onclick={() => mapStore.clearGridAlignment()}
+                  disabled={mapStore.gridAlignBoxes.length === 0}
+                >
+                  🗑️ Clear Drawn Boxes
+                </button>
+              </div>
+            </div>
           {:else if displayCategory === "wall"}
             <label>
               <span>Wall Collision Presets:</span>
