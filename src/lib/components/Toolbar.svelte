@@ -1952,7 +1952,7 @@
   }
 
   .tool-selector {
-    width: 110px;
+    width: 140px;
     display: flex;
     flex-direction: column;
     gap: 15px;
@@ -2104,9 +2104,13 @@
     font-weight: 500;
     display: flex;
     justify-content: flex-start;
+    align-items: center;
     gap: 8px;
     transition: all 0.2s;
     font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   button:hover {
