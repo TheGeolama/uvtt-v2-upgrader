@@ -184,8 +184,11 @@
   function applyOffsetsAndScale(manifest) {
     if (!mapSprite || mapSprite.texture === PIXI.Texture.EMPTY) return;
     const res = manifest.resolution;
-    const mapWidth = res.map_size[0] * res.pixels_per_grid;
-    const mapHeight = res.map_size[1] * res.pixels_per_grid;
+    const gridX = Number(res.pixels_per_grid) || 70;
+    const gridY = Number(res.pixels_per_grid_y) || gridX;
+
+    const mapWidth = res.map_size[0] * gridX;
+    const mapHeight = res.map_size[1] * gridY;
 
     mapSprite.width = mapWidth;
     mapSprite.height = mapHeight;
@@ -198,8 +201,11 @@
   function centerMap(manifest) {
     if (!viewportContainer) return;
     const res = manifest.resolution;
-    const mapWidth = res.map_size[0] * res.pixels_per_grid;
-    const mapHeight = res.map_size[1] * res.pixels_per_grid;
+    const gridX = Number(res.pixels_per_grid) || 70;
+    const gridY = Number(res.pixels_per_grid_y) || gridX;
+
+    const mapWidth = res.map_size[0] * gridX;
+    const mapHeight = res.map_size[1] * gridY;
 
     const cw = window.innerWidth;
     const ch = window.innerHeight;
@@ -233,20 +239,23 @@
     shadowContainer.removeChildren().forEach((c) => c.destroy());
 
     const res = manifest.resolution;
-    const gridSize = Number(res.pixels_per_grid) || 70;
+    const gridX = Number(res.pixels_per_grid) || 70;
+    const gridY = Number(res.pixels_per_grid_y) || gridX;
     const unitsPerGrid = Math.max(1, Number(res.units_per_grid) || 5);
     const originX = Number(res.map_origin[0]) || 0;
     const originY = Number(res.map_origin[1]) || 0;
-    const mapWidth = res.map_size[0] * gridSize;
-    const mapHeight = res.map_size[1] * gridSize;
+    const mapWidth = res.map_size[0] * gridX;
+    const mapHeight = res.map_size[1] * gridY;
 
     const subGridGfx = new PIXI.Graphics();
     gridContainer.addChild(subGridGfx);
-    const subGridSize = gridSize / unitsPerGrid;
-    for (let x = 0; x <= mapWidth; x += subGridSize) {
+    const subGridSizeX = gridX / unitsPerGrid;
+    const subGridSizeY = gridY / unitsPerGrid;
+
+    for (let x = 0; x <= mapWidth; x += subGridSizeX) {
       subGridGfx.moveTo(x, 0).lineTo(x, mapHeight);
     }
-    for (let y = 0; y <= mapHeight; y += subGridSize) {
+    for (let y = 0; y <= mapHeight; y += subGridSizeY) {
       subGridGfx.moveTo(0, y).lineTo(mapWidth, y);
     }
     subGridGfx.stroke({
@@ -257,10 +266,10 @@
 
     const mainGridGfx = new PIXI.Graphics();
     gridContainer.addChild(mainGridGfx);
-    for (let x = 0; x <= mapWidth; x += gridSize) {
+    for (let x = 0; x <= mapWidth; x += gridX) {
       mainGridGfx.moveTo(x, 0).lineTo(x, mapHeight);
     }
-    for (let y = 0; y <= mapHeight; y += gridSize) {
+    for (let y = 0; y <= mapHeight; y += gridY) {
       mainGridGfx.moveTo(0, y).lineTo(mapWidth, y);
     }
     mainGridGfx.stroke({
@@ -274,18 +283,18 @@
     entitiesContainer.addChild(entGfx);
 
     const viewportBounds = {
-      x: -panX / scale / gridSize + originX,
-      y: -panY / scale / gridSize + originY,
-      w: window.innerWidth / scale / gridSize,
-      h: window.innerHeight / scale / gridSize,
+      x: -panX / scale / gridX + originX,
+      y: -panY / scale / gridY + originY,
+      w: window.innerWidth / scale / gridX,
+      h: window.innerHeight / scale / gridY,
     };
     const visibleEntities = mapStore.quadtree?.retrieve(viewportBounds) || [];
 
     (manifest.entities?.props || []).forEach((prop) => {
       if (!visibleEntities.find((v) => v.id === prop.id)) return;
 
-      const px = (Number(prop.position.x) - originX) * gridSize;
-      const py = (Number(prop.position.y) - originY) * gridSize;
+      const px = (Number(prop.position.x) - originX) * gridX;
+      const py = (Number(prop.position.y) - originY) * gridY;
       try {
         const texture = getTexture(prop.image);
         const sprite = new PIXI.Sprite(texture);
@@ -330,10 +339,10 @@
 
     visibleEntityObjects.forEach((ent) => {
       if (ent.properties?.radius) {
-        const px = (Number(ent.position.x) - originX) * gridSize;
-        const py = (Number(ent.position.y) - originY) * gridSize;
-        const bRad = (Number(ent.properties.radius.bright) || 5) * gridSize;
-        const dRad = (Number(ent.properties.radius.dim) || 10) * gridSize;
+        const px = (Number(ent.position.x) - originX) * gridX;
+        const py = (Number(ent.position.y) - originY) * gridY;
+        const bRad = (Number(ent.properties.radius.bright) || 5) * gridX;
+        const dRad = (Number(ent.properties.radius.dim) || 10) * gridX;
         const color = ent.properties.color || "#ffffff";
         entGfx
           .circle(px, py, dRad)
@@ -349,9 +358,9 @@
             .circle(px, py, 8)
             .stroke({ width: 3, color: "#00f0ff", alpha: 1 });
       } else if (ent.center) {
-        const px = (Number(ent.center.x) - originX) * gridSize;
-        const py = (Number(ent.center.y) - originY) * gridSize;
-        const rad = (Number(ent.radius) || 5) * gridSize;
+        const px = (Number(ent.center.x) - originX) * gridX;
+        const py = (Number(ent.center.y) - originY) * gridY;
+        const rad = (Number(ent.radius) || 5) * gridX;
         entGfx
           .circle(px, py, rad)
           .fill({ color: 0x3b82f6, alpha: 0.05 })
@@ -362,9 +371,9 @@
             .circle(px, py, 8)
             .stroke({ width: 3, color: "#00f0ff", alpha: 1 });
       } else if (ent.trigger_bounds) {
-        const px = (Number(ent.trigger_bounds.center.x) - originX) * gridSize;
-        const py = (Number(ent.trigger_bounds.center.y) - originY) * gridSize;
-        const rad = (Number(ent.trigger_bounds.radius) || 2) * gridSize;
+        const px = (Number(ent.trigger_bounds.center.x) - originX) * gridX;
+        const py = (Number(ent.trigger_bounds.center.y) - originY) * gridY;
+        const rad = (Number(ent.trigger_bounds.radius) || 2) * gridX;
         entGfx
           .rect(px - rad, py - rad, rad * 2, rad * 2)
           .fill({ color: 0xa855f7, alpha: 0.1 })
@@ -375,18 +384,19 @@
             .circle(px, py, 8)
             .stroke({ width: 3, color: "#00f0ff", alpha: 1 });
       } else if (ent.coordinates) {
-        const px = (Number(ent.coordinates[0]) - originX) * gridSize;
-        const py = (Number(ent.coordinates[1]) - originY) * gridSize;
-        const half = gridSize / 2;
+        const px = (Number(ent.coordinates[0]) - originX) * gridX;
+        const py = (Number(ent.coordinates[1]) - originY) * gridY;
+        const halfX = gridX / 2;
+        const halfY = gridY / 2;
         const color = ent.is_default ? 0x22c55e : 0xeab308;
         if (ent.shape === "circle")
           entGfx
-            .circle(px, py, half)
+            .ellipse(px, py, halfX, halfY)
             .fill({ color, alpha: 0.2 })
             .stroke({ width: 2, color, alpha: 0.8 });
         else
           entGfx
-            .rect(px - half, py - half, gridSize, gridSize)
+            .rect(px - halfX, py - halfY, gridX, gridY)
             .fill({ color, alpha: 0.2 })
             .stroke({ width: 2, color, alpha: 0.8 });
         entGfx.circle(px, py, 4).fill({ color: "#ffffff", alpha: 0.9 });
@@ -395,8 +405,8 @@
             .circle(px, py, 8)
             .stroke({ width: 3, color: "#00f0ff", alpha: 1 });
       } else if (ent.position && ent.scale !== undefined) {
-        const px = (Number(ent.position.x) - originX) * gridSize;
-        const py = (Number(ent.position.y) - originY) * gridSize;
+        const px = (Number(ent.position.x) - originX) * gridX;
+        const py = (Number(ent.position.y) - originY) * gridY;
         entGfx.moveTo(px - 10, py).lineTo(px + 10, py);
         entGfx.moveTo(px, py - 10).lineTo(px, py + 10);
         entGfx.stroke({ width: 3, color: 0x06b6d4, alpha: 0.9 });
@@ -418,7 +428,7 @@
       const strokeColor = isHidden ? 0xef4444 : tint;
 
       if (selectedIds.has(roof.id)) {
-        tracePath(gfx, roof.path, gridSize, originX, originY, true);
+        tracePath(gfx, roof.path, gridX, gridY, originX, originY, true);
         gfx.stroke({
           width: 10,
           color: 0xffffff,
@@ -428,7 +438,7 @@
         });
       }
 
-      tracePath(gfx, roof.path, gridSize, originX, originY, true);
+      tracePath(gfx, roof.path, gridX, gridY, originX, originY, true);
 
       if (roof.path && roof.path.length > 2) {
         gfx.fill({ color: tint, alpha: renderOpacity });
@@ -447,7 +457,7 @@
       geometryContainer.addChild(gfx);
 
       if (selectedIds.has(wall.id)) {
-        tracePath(gfx, wall.path, gridSize, originX, originY);
+        tracePath(gfx, wall.path, gridX, gridY, originX, originY);
         gfx.stroke({
           width: 12,
           color: 0xffffff,
@@ -457,7 +467,7 @@
         });
       }
 
-      tracePath(gfx, wall.path, gridSize, originX, originY);
+      tracePath(gfx, wall.path, gridX, gridY, originX, originY);
       gfx.stroke({
         width: 5,
         color: 0x00f0ff,
@@ -475,7 +485,7 @@
       else if (portal.properties?.type === "secret") pColor = 0xa855f7;
 
       if (selectedIds.has(portal.id)) {
-        tracePath(gfx, portal.path, gridSize, originX, originY);
+        tracePath(gfx, portal.path, gridX, gridY, originX, originY);
         gfx.stroke({
           width: 12,
           color: 0xffffff,
@@ -485,7 +495,7 @@
         });
       }
 
-      tracePath(gfx, portal.path, gridSize, originX, originY);
+      tracePath(gfx, portal.path, gridX, gridY, originX, originY);
       gfx.stroke({
         width: 5,
         color: pColor,
@@ -498,13 +508,22 @@
     drawDraftingLayer();
     drawGridAlignBoxes();
     if (vision?.enabled)
-      drawVisionLoS(manifest, originX, originY, gridSize, mapWidth, mapHeight);
+      drawVisionLoS(
+        manifest,
+        originX,
+        originY,
+        gridX,
+        gridY,
+        mapWidth,
+        mapHeight,
+      );
     else if (lightingPreview)
       drawDynamicLighting(
         manifest,
         originX,
         originY,
-        gridSize,
+        gridX,
+        gridY,
         mapWidth,
         mapHeight,
       );
@@ -523,13 +542,15 @@
       geometryContainer.addChild(boxSelectGfx);
 
       const res = activeMap.manifest.resolution;
-      const gridSize = Number(res.pixels_per_grid) || 70;
+      const gridX = Number(res.pixels_per_grid) || 70;
+      const gridY = Number(res.pixels_per_grid_y) || gridX;
+
       const originX = Number(res.map_origin[0]) || 0;
       const originY = Number(res.map_origin[1]) || 0;
-      const sx = (boxSelectStart.x - originX) * gridSize;
-      const sy = (boxSelectStart.y - originY) * gridSize;
-      const ex = (boxSelectEnd.x - originX) * gridSize;
-      const ey = (boxSelectEnd.y - originY) * gridSize;
+      const sx = (boxSelectStart.x - originX) * gridX;
+      const sy = (boxSelectStart.y - originY) * gridY;
+      const ex = (boxSelectEnd.x - originX) * gridX;
+      const ey = (boxSelectEnd.y - originY) * gridY;
 
       boxSelectGfx.rect(
         Math.min(sx, ex),
@@ -603,7 +624,8 @@
       geometryContainer.addChild(draftingLayerGfx);
 
       const res = activeMap.manifest.resolution;
-      const gridSize = Number(res.pixels_per_grid) || 70;
+      const gridX = Number(res.pixels_per_grid) || 70;
+      const gridY = Number(res.pixels_per_grid_y) || gridX;
       const originX = Number(res.map_origin[0]) || 0;
       const originY = Number(res.map_origin[1]) || 0;
 
@@ -620,7 +642,8 @@
       tracePath(
         draftingLayerGfx,
         pts,
-        gridSize,
+        gridX,
+        gridY,
         originX,
         originY,
         activeTool === "roof",
@@ -639,11 +662,19 @@
     }
   }
 
-  function tracePath(gfx, path, gridSize, originX, originY, closePath = false) {
+  function tracePath(
+    gfx,
+    path,
+    gridX,
+    gridY,
+    originX,
+    originY,
+    closePath = false,
+  ) {
     if (!path || path.length < 2) return;
     for (let i = 0; i < path.length; i++) {
-      const px = (Number(path[i].x) - originX) * gridSize;
-      const py = (Number(path[i].y) - originY) * gridSize;
+      const px = (Number(path[i].x) - originX) * gridX;
+      const py = (Number(path[i].y) - originY) * gridY;
       if (isNaN(px) || isNaN(py)) continue;
       if (i === 0) gfx.moveTo(px, py);
       else gfx.lineTo(px, py);
@@ -685,7 +716,7 @@
 
   function getGridCoordinates(clientX, clientY, e_shiftKey, currentToolAction) {
     if (!activeMap) {
-      return { exactX: 0, exactY: 0, snapX: 0, snapY: 0, gridSize: 70 };
+      return { exactX: 0, exactY: 0, snapX: 0, snapY: 0, gridX: 70, gridY: 70 };
     }
 
     const rect = canvasContainer.getBoundingClientRect();
@@ -693,7 +724,9 @@
     const rawY = clientY - rect.top;
 
     const manifest = activeMap.manifest;
-    const gridSize = Number(manifest.resolution?.pixels_per_grid) || 70;
+    const gridX = Number(manifest.resolution?.pixels_per_grid) || 70;
+    const gridY = Number(manifest.resolution?.pixels_per_grid_y) || gridX;
+
     const unitsPerGrid = Math.max(
       1,
       Number(manifest.resolution?.units_per_grid) || 5,
@@ -701,8 +734,8 @@
     const originX = Number(manifest.resolution?.map_origin?.[0]) || 0;
     const originY = Number(manifest.resolution?.map_origin?.[1]) || 0;
 
-    const exactX = (rawX - panX) / scale / gridSize + originX;
-    const exactY = (rawY - panY) / scale / gridSize + originY;
+    const exactX = (rawX - panX) / scale / gridX + originX;
+    const exactY = (rawY - panY) / scale / gridY + originY;
 
     let snapX = exactX;
     let snapY = exactY;
@@ -759,7 +792,240 @@
       snapY = Math.round(exactY * unitsPerGrid) / unitsPerGrid;
     }
 
-    return { exactX, exactY, snapX, snapY, gridSize };
+    return { exactX, exactY, snapX, snapY, gridX, gridY };
+  }
+
+  // --- LOV/FOG MATH HELPERS ---
+  function buildCollisionSegments(
+    manifest,
+    originX,
+    originY,
+    gridX,
+    gridY,
+    mapWidth,
+    mapHeight,
+  ) {
+    const segments = [];
+    segments.push({ p1: { x: 0, y: 0 }, p2: { x: mapWidth, y: 0 } });
+    segments.push({
+      p1: { x: mapWidth, y: 0 },
+      p2: { x: mapWidth, y: mapHeight },
+    });
+    segments.push({
+      p1: { x: mapWidth, y: mapHeight },
+      p2: { x: 0, y: mapHeight },
+    });
+    segments.push({ p1: { x: 0, y: mapHeight }, p2: { x: 0, y: 0 } });
+
+    (manifest.geometry?.walls || []).forEach((w) => {
+      if (!w.path || w.path.length < 2 || w.properties?.type === "invisible")
+        return;
+      for (let i = 0; i < w.path.length - 1; i++) {
+        segments.push({
+          p1: {
+            x: (w.path[i].x - originX) * gridX,
+            y: (w.path[i].y - originY) * gridY,
+          },
+          p2: {
+            x: (w.path[i + 1].x - originX) * gridX,
+            y: (w.path[i + 1].y - originY) * gridY,
+          },
+        });
+      }
+    });
+
+    (manifest.geometry?.portals || []).forEach((p) => {
+      if (!p.path || p.path.length < 2 || p.properties?.state === "open")
+        return;
+      for (let i = 0; i < p.path.length - 1; i++) {
+        segments.push({
+          p1: {
+            x: (p.path[i].x - originX) * gridX,
+            y: (p.path[i].y - originY) * gridY,
+          },
+          p2: {
+            x: (p.path[i + 1].x - originX) * gridX,
+            y: (p.path[i + 1].y - originY) * gridY,
+          },
+        });
+      }
+    });
+    return segments;
+  }
+
+  function calculateVisibilityPolygon(ox, oy, radius, segments) {
+    const angles = [];
+    for (const seg of segments) {
+      const minX = Math.min(seg.p1.x, seg.p2.x),
+        maxX = Math.max(seg.p1.x, seg.p2.x);
+      const minY = Math.min(seg.p1.y, seg.p2.y),
+        maxY = Math.max(seg.p1.y, seg.p2.y);
+      if (
+        maxX < ox - radius ||
+        minX > ox + radius ||
+        maxY < oy - radius ||
+        minY > oy + radius
+      )
+        continue;
+
+      const a1 = Math.atan2(seg.p1.y - oy, seg.p1.x - ox);
+      const a2 = Math.atan2(seg.p2.y - oy, seg.p2.x - ox);
+
+      angles.push(a1 - 0.0001, a1, a1 + 0.0001);
+      angles.push(a2 - 0.0001, a2, a2 + 0.0001);
+    }
+
+    const intersects = [];
+    for (let a of angles) {
+      const normA = Math.atan2(Math.sin(a), Math.cos(a));
+      const dx = Math.cos(normA),
+        dy = Math.sin(normA);
+      const r_dx = dx * radius,
+        r_dy = dy * radius;
+
+      let minT1 = 1;
+      let intersectPt = { x: ox + r_dx, y: oy + r_dy, angle: normA };
+
+      for (const seg of segments) {
+        const s_dx = seg.p2.x - seg.p1.x,
+          s_dy = seg.p2.y - seg.p1.y;
+        const T2 = r_dx * s_dy - r_dy * s_dx;
+        if (T2 === 0) continue;
+
+        const T1 = (seg.p1.x - ox) * s_dy - (seg.p1.y - oy) * s_dx;
+        const t1 = T1 / T2;
+        const t2 = ((seg.p1.x - ox) * r_dy - (seg.p1.y - oy) * r_dx) / T2;
+
+        if (t1 > 0 && t1 < minT1 && t2 >= 0 && t2 <= 1) {
+          minT1 = t1;
+          intersectPt = { x: ox + r_dx * t1, y: oy + r_dy * t1, angle: normA };
+        }
+      }
+      intersects.push(intersectPt);
+    }
+
+    intersects.sort((a, b) => a.angle - b.angle);
+    return intersects;
+  }
+
+  function drawVisionLoS(
+    manifest,
+    originX,
+    originY,
+    gridX,
+    gridY,
+    mapWidth,
+    mapHeight,
+  ) {
+    const shadowGfx = new PIXI.Graphics();
+    shadowContainer.addChild(shadowGfx);
+    const segments = buildCollisionSegments(
+      manifest,
+      originX,
+      originY,
+      gridX,
+      gridY,
+      mapWidth,
+      mapHeight,
+    );
+
+    shadowGfx
+      .moveTo(0, 0)
+      .lineTo(mapWidth, 0)
+      .lineTo(mapWidth, mapHeight)
+      .lineTo(0, mapHeight)
+      .closePath();
+
+    const tx = (vision.token.x - originX) * gridX;
+    const ty = (vision.token.y - originY) * gridY;
+    const radius = (vision.token.radius || 20) * gridX;
+
+    const intersects = calculateVisibilityPolygon(tx, ty, radius, segments);
+
+    if (intersects.length > 0) {
+      shadowGfx.moveTo(
+        intersects[intersects.length - 1].x,
+        intersects[intersects.length - 1].y,
+      );
+      for (let i = intersects.length - 2; i >= 0; i--) {
+        shadowGfx.lineTo(intersects[i].x, intersects[i].y);
+      }
+      shadowGfx.closePath();
+    }
+
+    shadowGfx.fill({ color: 0x000000, alpha: 0.92 });
+    const tokenGfx = new PIXI.Graphics();
+    shadowContainer.addChild(tokenGfx);
+    tokenGfx
+      .circle(tx, ty, gridX * 0.4)
+      .fill({ color: 0x3b82f6, alpha: 0.8 })
+      .stroke({ width: 3, color: 0xffffff, alpha: 1 });
+    tokenGfx.circle(tx, ty, gridX * 0.1).fill({ color: 0xffffff });
+  }
+
+  function drawDynamicLighting(
+    manifest,
+    originX,
+    originY,
+    gridX,
+    gridY,
+    mapWidth,
+    mapHeight,
+  ) {
+    const shadowGfx = new PIXI.Graphics();
+    shadowContainer.addChild(shadowGfx);
+    const segments = buildCollisionSegments(
+      manifest,
+      originX,
+      originY,
+      gridX,
+      gridY,
+      mapWidth,
+      mapHeight,
+    );
+    shadowGfx
+      .moveTo(0, 0)
+      .lineTo(mapWidth, 0)
+      .lineTo(mapWidth, mapHeight)
+      .lineTo(0, mapHeight)
+      .closePath();
+
+    (manifest.entities?.lights || []).forEach((light) => {
+      const lx = (Number(light.position?.x) - originX) * gridX;
+      const ly = (Number(light.position?.y) - originY) * gridY;
+      if (isNaN(lx) || isNaN(ly)) return;
+      const radius = (Number(light.properties?.radius?.dim) || 10) * gridX;
+      const intersects = calculateVisibilityPolygon(lx, ly, radius, segments);
+
+      if (intersects.length > 0) {
+        if (light.type === "directional") {
+          const rot =
+            (Number(light.properties?.rotation) || 0) * (Math.PI / 180);
+          const cone =
+            (Number(light.properties?.cone_angle) || 60) * (Math.PI / 180);
+          shadowGfx.moveTo(lx, ly);
+          for (let i = intersects.length - 1; i >= 0; i--) {
+            let diff = Math.atan2(
+              Math.sin(intersects[i].angle - rot),
+              Math.cos(intersects[i].angle - rot),
+            );
+            if (Math.abs(diff) <= cone / 2 + 0.001)
+              shadowGfx.lineTo(intersects[i].x, intersects[i].y);
+          }
+          shadowGfx.lineTo(lx, ly);
+          shadowGfx.closePath();
+        } else {
+          shadowGfx.moveTo(
+            intersects[intersects.length - 1].x,
+            intersects[intersects.length - 1].y,
+          );
+          for (let i = intersects.length - 2; i >= 0; i--)
+            shadowGfx.lineTo(intersects[i].x, intersects[i].y);
+          shadowGfx.closePath();
+        }
+      }
+    });
+    shadowGfx.fill({ color: 0x000000, alpha: 0.85 });
   }
 
   // --- DROP EVENT HANDLERS ---
@@ -818,7 +1084,7 @@
         e.shiftKey,
         activeTool,
       );
-      const thresholdSq = (15 / scale / coords.gridSize) ** 2;
+      const thresholdSq = (15 / scale / coords.gridX) ** 2;
       const nodeDeleted = mapStore.deleteVectorNode(
         coords.exactX,
         coords.exactY,
@@ -878,7 +1144,7 @@
       currentGridY = coords.snapY;
 
       if (e.altKey && currentToolAction === "select") {
-        const thresholdSq = (15 / scale / coords.gridSize) ** 2;
+        const thresholdSq = (15 / scale / coords.gridX) ** 2;
         const splitOccurred = mapStore.splitVectorNode(
           coords.exactX,
           coords.exactY,
@@ -907,7 +1173,7 @@
       if (currentToolAction === "select") {
         const manifest = activeMap.manifest;
         let closestItem = null;
-        let minGridDistSq = (15 / scale / coords.gridSize) ** 2;
+        let minGridDistSq = (15 / scale / coords.gridX) ** 2;
         const searchRange = {
           x: coords.exactX - 1,
           y: coords.exactY - 1,

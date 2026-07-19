@@ -257,15 +257,16 @@ class MapStore {
         if (!this.activeMap || this.gridAlignBoxes.length === 0) return;
         const boxes = this.gridAlignBoxes;
         
-        let sumSize = 0;
+        let sumW = 0, sumH = 0;
         let validCount = 0;
 
-        // Average out all drawn boxes to find the true fractional scale
+        // Calculate independent X and Y scales
         boxes.forEach(b => {
             const w = Math.abs(b.ex - b.sx);
             const h = Math.abs(b.ey - b.sy);
             if (w > 10 && h > 10) {
-                sumSize += (w + h) / 2;
+                sumW += w;
+                sumH += h;
                 validCount++;
             }
         });
@@ -275,55 +276,65 @@ class MapStore {
             return;
         }
 
-        const newPpg = Math.max(10, sumSize / validCount);
+        const newPpgX = Math.max(10, sumW / validCount);
+        const newPpgY = Math.max(10, sumH / validCount);
         
-        // Use the top-left corner of the VERY FIRST box drawn as the origin anchor
         const anchorX = Math.min(boxes[0].sx, boxes[0].ex);
         const anchorY = Math.min(boxes[0].sy, boxes[0].ey);
 
-        const modX = ((anchorX % newPpg) + newPpg) % newPpg;
-        const modY = ((anchorY % newPpg) + newPpg) % newPpg;
+        const modX = ((anchorX % newPpgX) + newPpgX) % newPpgX;
+        const modY = ((anchorY % newPpgY) + newPpgY) % newPpgY;
         
         const res = this.activeMap.manifest.resolution;
-        const oldPpg = Number(res.pixels_per_grid) || 70;
+        const oldPpgX = Number(res.pixels_per_grid) || 70;
+        const oldPpgY = Number(res.pixels_per_grid_y) || oldPpgX;
         
-        const pixelWidth = res.map_size[0] * oldPpg;
-        const pixelHeight = res.map_size[1] * oldPpg;
+        // Preserve absolute pixel dimensions
+        const pixelWidth = res.map_size[0] * oldPpgX;
+        const pixelHeight = res.map_size[1] * oldPpgY;
         
-        res.pixels_per_grid = newPpg;
-        res.map_size[0] = pixelWidth / newPpg;
-        res.map_size[1] = pixelHeight / newPpg;
+        res.pixels_per_grid = newPpgX;
+        res.pixels_per_grid_y = newPpgY; // Non-square grid tracking
+        res.map_size[0] = pixelWidth / newPpgX;
+        res.map_size[1] = pixelHeight / newPpgY;
         
         res.map_offset_x = -modX;
         res.map_offset_y = -modY;
 
-        this.gridAlignBoxes = []; // Clear visualizer
+        this.gridAlignBoxes = [];
+        this.setTool('select');
         this.pushHistory("Rubber Sheet Grid Alignment");
         this.updateTrigger++;
     }
 
-    updateManualGrid(newPpg, offX, offY) {
+    updateManualGrid(newPpgX, newPpgY, offX, offY) {
         if (!this.activeMap) return;
         const res = this.activeMap.manifest.resolution;
-        const oldPpg = Number(res.pixels_per_grid) || 70;
         
-        // Preserve image size in absolute pixels so the image doesn't scale weirdly
-        const pixelWidth = res.map_size[0] * oldPpg;
-        const pixelHeight = res.map_size[1] * oldPpg;
+        const oldPpgX = Number(res.pixels_per_grid) || 70;
+        const oldPpgY = Number(res.pixels_per_grid_y) || oldPpgX;
+        
+        const pixelWidth = res.map_size[0] * oldPpgX;
+        const pixelHeight = res.map_size[1] * oldPpgY;
 
-        if (newPpg !== null && !isNaN(newPpg) && newPpg > 0) {
-            res.pixels_per_grid = Number(newPpg);
+        if (newPpgX !== null && !isNaN(newPpgX) && newPpgX > 0) {
+            res.pixels_per_grid = Number(newPpgX);
             res.map_size[0] = pixelWidth / res.pixels_per_grid;
-            res.map_size[1] = pixelHeight / res.pixels_per_grid;
+            
+            // If they are setting X but Y doesn't exist yet, bind them
+            if (res.pixels_per_grid_y === undefined) {
+                res.pixels_per_grid_y = res.pixels_per_grid;
+                res.map_size[1] = pixelHeight / res.pixels_per_grid_y;
+            }
+        }
+        
+        if (newPpgY !== null && !isNaN(newPpgY) && newPpgY > 0) {
+            res.pixels_per_grid_y = Number(newPpgY);
+            res.map_size[1] = pixelHeight / res.pixels_per_grid_y;
         }
 
-        if (offX !== null && !isNaN(offX)) {
-            res.map_offset_x = Number(offX);
-        }
-
-        if (offY !== null && !isNaN(offY)) {
-            res.map_offset_y = Number(offY);
-        }
+        if (offX !== null && !isNaN(offX)) res.map_offset_x = Number(offX);
+        if (offY !== null && !isNaN(offY)) res.map_offset_y = Number(offY);
 
         this.pushHistory("Manual Grid Adjustment");
         this.updateTrigger++;
@@ -798,33 +809,31 @@ class MapStore {
             reader.onload = (e) => {
                 const view = new DataView(e.target.result);
                 try {
-                    // Check for JPEG (FF D8)
                     if (view.getUint16(0) === 0xFFD8) {
                         let offset = 2;
                         while (offset < view.byteLength) {
                             const marker = view.getUint16(offset);
                             const len = view.getUint16(offset + 2);
-                            if (marker === 0xFFE0) { // APP0 JFIF Marker
+                            if (marker === 0xFFE0) { 
                                 if (view.getUint32(offset + 4) === 0x4A464946) {
                                     const units = view.getUint8(offset + 11);
                                     const xDen = view.getUint16(offset + 12);
-                                    if (units === 1 && xDen > 10) return resolve(xDen); // DPI
-                                    if (units === 2 && xDen > 10) return resolve(Math.round(xDen * 2.54)); // DPCM to DPI
+                                    if (units === 1 && xDen > 10) return resolve(xDen); 
+                                    if (units === 2 && xDen > 10) return resolve(Math.round(xDen * 2.54)); 
                                 }
                             }
                             offset += len + 2;
                         }
                     } 
-                    // Check for PNG (89 50 4E 47)
                     else if (view.getUint32(0) === 0x89504E47) {
                         let offset = 8;
                         while (offset < view.byteLength) {
                             const len = view.getUint32(offset);
                             const type = view.getUint32(offset + 4);
-                            if (type === 0x70485973) { // 'pHYs' Chunk
+                            if (type === 0x70485973) { 
                                 const ppuX = view.getUint32(offset + 8);
                                 const unit = view.getUint8(offset + 16);
-                                if (unit === 1 && ppuX > 10) return resolve(Math.round(ppuX * 0.0254)); // Pixels per meter to DPI
+                                if (unit === 1 && ppuX > 10) return resolve(Math.round(ppuX * 0.0254)); 
                             }
                             offset += len + 12;
                         }
@@ -832,16 +841,14 @@ class MapStore {
                 } catch(err) {
                     console.warn("DPI Extraction skipped:", err);
                 }
-                resolve(70); // Default fallback if no valid tag found
+                resolve(70); 
             };
-            // Read only the first 64KB for speed
             reader.readAsArrayBuffer(file.slice(0, 65536));
         });
     }
 
     async importImageAsMap(file) {
         try {
-            // Read file into Base64 for Canvas & Go Backend
             const dataUrl = await new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = () => resolve(reader.result);
@@ -849,11 +856,9 @@ class MapStore {
                 reader.readAsDataURL(file);
             });
 
-            // Extract native DPI from the binary image headers
             const detectedPpg = await this.extractDPI(file);
             const ppg = isNaN(detectedPpg) ? 70 : detectedPpg; 
 
-            // Get intrinsic image dimensions to build the grid
             const img = new Image();
             await new Promise((resolve, reject) => {
                 img.onload = resolve;
@@ -873,6 +878,7 @@ class MapStore {
                         map_origin: [0, 0],
                         map_size: [mapWidth, mapHeight],
                         pixels_per_grid: ppg, 
+                        pixels_per_grid_y: ppg, 
                         grid_line_width: 1.5, 
                         subgrid_line_width: 1.0 
                     },
@@ -1544,56 +1550,6 @@ class MapStore {
     duplicateSelected() {
         this.copySelected();
         this.pasteClipboard(0, 0);
-    }
-
-    // --- GLOBAL ASSET LIBRARY BRIDGE ---
-    async mountAssetLibrary() {
-        if (window.go && window.go.main && window.go.main.App && window.go.main.App.SelectAssetDirectory) {
-            try {
-                const assets = await window.go.main.App.SelectAssetDirectory();
-                if (assets && assets.length > 0) {
-                    const images = assets.filter(a => a.type === 'image');
-                    const audio = assets.filter(a => a.type === 'audio');
-                    this.globalAssets = { images, audio };
-
-                    const audioPromises = audio.map(async (a) => {
-                        try {
-                            const res = await fetch(a.data);
-                            const blob = await res.blob();
-                            this.audioBlobs[a.name] = blob;
-                        } catch (e) {
-                            console.error(`Failed to fetch local audio: ${a.name}`);
-                        }
-                    });
-                    
-                    await Promise.all(audioPromises);
-                    this.updateTrigger++;
-                }
-            } catch (err) {
-                console.error("Failed to load asset directory:", err);
-            }
-        } else {
-            alert("Asset Library requires the native Wails Desktop build running.");
-        }
-    }
-
-    addProp(x, y, imageURL, name) {
-        const activeMap = this.activeMap;
-        if (!activeMap) return;
-        const ds = this.defaultSettings.prop;
-        const prop = {
-            id: crypto.randomUUID(),
-            name: name,
-            image: imageURL,
-            position: { x, y, z: ds.position.z },
-            rotation: ds.rotation,
-            scale: ds.scale
-        };
-        if (!activeMap.manifest.entities.props) activeMap.manifest.entities.props = [];
-        activeMap.manifest.entities.props.push(prop);
-        this.pushHistory("Added Prop Asset");
-        this.updateSpatialIndex();
-        this.updateTrigger++;
     }
 }
 

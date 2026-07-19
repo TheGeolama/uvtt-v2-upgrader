@@ -804,15 +804,39 @@
                 style="margin-bottom: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;"
               >
                 <label
-                  style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; grid-column: span 2;"
+                  style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px;"
                 >
-                  Grid Size (DPI)
+                  Grid X (DPI)
                   <input
                     type="number"
+                    step="0.1"
                     value={mapStore.activeMap?.manifest?.resolution
                       ?.pixels_per_grid || 70}
                     onchange={(e) =>
                       mapStore.updateManualGrid(
+                        parseFloat(e.target.value),
+                        null,
+                        null,
+                        null,
+                      )}
+                    style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
+                  />
+                </label>
+                <label
+                  style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px;"
+                >
+                  Grid Y (DPI)
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={mapStore.activeMap?.manifest?.resolution
+                      ?.pixels_per_grid_y ||
+                      mapStore.activeMap?.manifest?.resolution
+                        ?.pixels_per_grid ||
+                      70}
+                    onchange={(e) =>
+                      mapStore.updateManualGrid(
+                        null,
                         parseFloat(e.target.value),
                         null,
                         null,
@@ -826,10 +850,12 @@
                   X Offset (px)
                   <input
                     type="number"
+                    step="0.5"
                     value={mapStore.activeMap?.manifest?.resolution
                       ?.map_offset_x || 0}
                     onchange={(e) =>
                       mapStore.updateManualGrid(
+                        null,
                         null,
                         parseFloat(e.target.value),
                         null,
@@ -843,10 +869,12 @@
                   Y Offset (px)
                   <input
                     type="number"
+                    step="0.5"
                     value={mapStore.activeMap?.manifest?.resolution
                       ?.map_offset_y || 0}
                     onchange={(e) =>
                       mapStore.updateManualGrid(
+                        null,
                         null,
                         null,
                         parseFloat(e.target.value),
