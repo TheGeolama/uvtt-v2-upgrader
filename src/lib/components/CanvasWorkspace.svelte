@@ -12,10 +12,6 @@
   let geometryContainer;
   let entitiesContainer;
   let shadowContainer;
-  let isBoxTracing = false;
-  let traceBoxStart = null;
-  let traceBoxEnd = null;
-  let traceBoxGfx = null;
 
   // --- REACTIVE VIEWPORT STATE ---
   let scale = $state(1);
@@ -36,6 +32,12 @@
   let boxSelectStart = null;
   let boxSelectEnd = null;
   let boxSelectGfx = null;
+
+  // --- BOX TRACE STATE ---
+  let isBoxTracing = false;
+  let traceBoxStart = null;
+  let traceBoxEnd = null;
+  let traceBoxGfx = null;
 
   let activeMap = $derived(mapStore.activeMap);
   let activeTool = $derived(mapStore.activeTool);
@@ -500,6 +502,118 @@
       );
   }
 
+  function drawBoxSelection() {
+    if (!geometryContainer || !activeMap) return;
+    if (boxSelectGfx) {
+      boxSelectGfx.destroy();
+      boxSelectGfx = null;
+    }
+    if (isBoxSelecting && boxSelectStart && boxSelectEnd) {
+      boxSelectGfx = new PIXI.Graphics();
+      geometryContainer.addChild(boxSelectGfx);
+      const res = activeMap.manifest.resolution;
+      const gridSize = Number(res.pixels_per_grid) || 70;
+      const originX = Number(res.map_origin[0]) || 0;
+      const originY = Number(res.map_origin[1]) || 0;
+      const sx = (boxSelectStart.x - originX) * gridSize;
+      const sy = (boxSelectStart.y - originY) * gridSize;
+      const ex = (boxSelectEnd.x - originX) * gridSize;
+      const ey = (boxSelectEnd.y - originY) * gridSize;
+      boxSelectGfx.rect(
+        Math.min(sx, ex),
+        Math.min(sy, ey),
+        Math.abs(ex - sx),
+        Math.abs(ey - sy),
+      );
+      boxSelectGfx.fill({ color: 0x00f0ff, alpha: 0.1 });
+      boxSelectGfx.stroke({ width: 1, color: 0x00f0ff, alpha: 0.8 });
+    }
+  }
+
+  function drawTraceBox() {
+    if (!geometryContainer || !activeMap) return;
+    if (traceBoxGfx) {
+      traceBoxGfx.destroy();
+      traceBoxGfx = null;
+    }
+    if (isBoxTracing && traceBoxStart && traceBoxEnd) {
+      traceBoxGfx = new PIXI.Graphics();
+      geometryContainer.addChild(traceBoxGfx);
+      const res = activeMap.manifest.resolution;
+      const gridSize = Number(res.pixels_per_grid) || 70;
+      const originX = Number(res.map_origin[0]) || 0;
+      const originY = Number(res.map_origin[1]) || 0;
+
+      const sx = (traceBoxStart.x - originX) * gridSize;
+      const sy = (traceBoxStart.y - originY) * gridSize;
+      const ex = (traceBoxEnd.x - originX) * gridSize;
+      const ey = (traceBoxEnd.y - originY) * gridSize;
+
+      traceBoxGfx.rect(
+        Math.min(sx, ex),
+        Math.min(sy, ey),
+        Math.abs(ex - sx),
+        Math.abs(ey - sy),
+      );
+      traceBoxGfx.fill({ color: 0xff00ff, alpha: 0.1 });
+      traceBoxGfx.stroke({ width: 2, color: 0xff00ff, alpha: 0.8 });
+    }
+  }
+
+  function drawDraftingLayer() {
+    if (!geometryContainer || !activeMap) return;
+    if (draftingLayerGfx) {
+      draftingLayerGfx.destroy();
+      draftingLayerGfx = null;
+    }
+    if (draftingPath.length > 0) {
+      draftingLayerGfx = new PIXI.Graphics();
+      geometryContainer.addChild(draftingLayerGfx);
+      const res = activeMap.manifest.resolution;
+      const gridSize = Number(res.pixels_per_grid) || 70;
+      const originX = Number(res.map_origin[0]) || 0;
+      const originY = Number(res.map_origin[1]) || 0;
+      const pts = draftingPreview
+        ? [...draftingPath, draftingPreview]
+        : [...draftingPath];
+      const dColor =
+        activeTool === "wall"
+          ? 0x00f0ff
+          : activeTool === "roof"
+            ? 0x22c55e
+            : 0xffa500;
+      tracePath(
+        draftingLayerGfx,
+        pts,
+        gridSize,
+        originX,
+        originY,
+        activeTool === "roof",
+      );
+      draftingLayerGfx.stroke({
+        width: 4,
+        color: dColor,
+        alpha: 0.6,
+        join: "round",
+        cap: "round",
+      });
+      if (activeTool === "roof" && pts.length > 2)
+        draftingLayerGfx.fill({ color: dColor, alpha: 0.2 });
+    }
+  }
+
+  function tracePath(gfx, path, gridSize, originX, originY, closePath = false) {
+    if (!path || path.length < 2) return;
+    for (let i = 0; i < path.length; i++) {
+      const px = (Number(path[i].x) - originX) * gridSize;
+      const py = (Number(path[i].y) - originY) * gridSize;
+      if (isNaN(px) || isNaN(py)) continue;
+      if (i === 0) gfx.moveTo(px, py);
+      else gfx.lineTo(px, py);
+    }
+    if (closePath && path.length > 2) gfx.closePath();
+  }
+
   // --- CORE MATH HELPERS ---
   function buildCollisionSegments(
     manifest,
@@ -728,118 +842,6 @@
     shadowGfx.fill({ color: 0x000000, alpha: 0.85 });
   }
 
-  function drawBoxSelection() {
-    if (!geometryContainer || !activeMap) return;
-    if (boxSelectGfx) {
-      boxSelectGfx.destroy();
-      boxSelectGfx = null;
-    }
-    if (isBoxSelecting && boxSelectStart && boxSelectEnd) {
-      boxSelectGfx = new PIXI.Graphics();
-      geometryContainer.addChild(boxSelectGfx);
-      const res = activeMap.manifest.resolution;
-      const gridSize = Number(res.pixels_per_grid) || 70;
-      const originX = Number(res.map_origin[0]) || 0;
-      const originY = Number(res.map_origin[1]) || 0;
-      const sx = (boxSelectStart.x - originX) * gridSize;
-      const sy = (boxSelectStart.y - originY) * gridSize;
-      const ex = (boxSelectEnd.x - originX) * gridSize;
-      const ey = (boxSelectEnd.y - originY) * gridSize;
-      boxSelectGfx.rect(
-        Math.min(sx, ex),
-        Math.min(sy, ey),
-        Math.abs(ex - sx),
-        Math.abs(ey - sy),
-      );
-      boxSelectGfx.fill({ color: 0x00f0ff, alpha: 0.1 });
-      boxSelectGfx.stroke({ width: 1, color: 0x00f0ff, alpha: 0.8 });
-    }
-  }
-
-  function drawTraceBox() {
-    if (!geometryContainer || !activeMap) return;
-    if (traceBoxGfx) {
-      traceBoxGfx.destroy();
-      traceBoxGfx = null;
-    }
-    if (isBoxTracing && traceBoxStart && traceBoxEnd) {
-      traceBoxGfx = new PIXI.Graphics();
-      geometryContainer.addChild(traceBoxGfx);
-      const res = activeMap.manifest.resolution;
-      const gridSize = Number(res.pixels_per_grid) || 70;
-      const originX = Number(res.map_origin[0]) || 0;
-      const originY = Number(res.map_origin[1]) || 0;
-
-      const sx = (traceBoxStart.x - originX) * gridSize;
-      const sy = (traceBoxStart.y - originY) * gridSize;
-      const ex = (traceBoxEnd.x - originX) * gridSize;
-      const ey = (traceBoxEnd.y - originY) * gridSize;
-
-      traceBoxGfx.rect(
-        Math.min(sx, ex),
-        Math.min(sy, ey),
-        Math.abs(ex - sx),
-        Math.abs(ey - sy),
-      );
-      traceBoxGfx.fill({ color: 0xff00ff, alpha: 0.1 }); // Pink trace box
-      traceBoxGfx.stroke({ width: 2, color: 0xff00ff, alpha: 0.8 });
-    }
-  }
-
-  function drawDraftingLayer() {
-    if (!geometryContainer || !activeMap) return;
-    if (draftingLayerGfx) {
-      draftingLayerGfx.destroy();
-      draftingLayerGfx = null;
-    }
-    if (draftingPath.length > 0) {
-      draftingLayerGfx = new PIXI.Graphics();
-      geometryContainer.addChild(draftingLayerGfx);
-      const res = activeMap.manifest.resolution;
-      const gridSize = Number(res.pixels_per_grid) || 70;
-      const originX = Number(res.map_origin[0]) || 0;
-      const originY = Number(res.map_origin[1]) || 0;
-      const pts = draftingPreview
-        ? [...draftingPath, draftingPreview]
-        : [...draftingPath];
-      const dColor =
-        activeTool === "wall"
-          ? 0x00f0ff
-          : activeTool === "roof"
-            ? 0x22c55e
-            : 0xffa500;
-      tracePath(
-        draftingLayerGfx,
-        pts,
-        gridSize,
-        originX,
-        originY,
-        activeTool === "roof",
-      );
-      draftingLayerGfx.stroke({
-        width: 4,
-        color: dColor,
-        alpha: 0.6,
-        join: "round",
-        cap: "round",
-      });
-      if (activeTool === "roof" && pts.length > 2)
-        draftingLayerGfx.fill({ color: dColor, alpha: 0.2 });
-    }
-  }
-
-  function tracePath(gfx, path, gridSize, originX, originY, closePath = false) {
-    if (!path || path.length < 2) return;
-    for (let i = 0; i < path.length; i++) {
-      const px = (Number(path[i].x) - originX) * gridSize;
-      const py = (Number(path[i].y) - originY) * gridSize;
-      if (isNaN(px) || isNaN(py)) continue;
-      if (i === 0) gfx.moveTo(px, py);
-      else gfx.lineTo(px, py);
-    }
-    if (closePath && path.length > 2) gfx.closePath();
-  }
-
   // --- STRICT VECTOR AND CENTER SNAPPING MATH ---
   function getVectorSnapPoint(px, py, walls, snapDistance) {
     let closestDist = snapDistance * snapDistance;
@@ -985,13 +987,6 @@
     if (!viewportContainer || !activeMap) return;
     if (e.button === 0 && vision?.enabled) {
       const coords = getGridCoordinates(e.clientX, e.clientY, false, "select");
-      // --- CENTERLINE BOX INTERCEPT ---
-      if (currentToolAction === "wall" && mapStore.boxTraceMode) {
-        isBoxTracing = true;
-        traceBoxStart = { x: coords.exactX, y: coords.exactY };
-        traceBoxEnd = { x: coords.exactX, y: coords.exactY };
-        return;
-      }
       const distSq =
         (coords.exactX - vision.token.x) ** 2 +
         (coords.exactY - vision.token.y) ** 2;
@@ -1042,10 +1037,12 @@
         currentToolAction,
       );
 
-      // --- MAGIC WAND INTERCEPT ---
-      if (currentToolAction === "wall" && mapStore.wandMode) {
-        mapStore.traceWandFromSeed(coords.exactX, coords.exactY);
-        return; // Skip normal drafting entirely
+      // --- CENTERLINE BOX INTERCEPT ---
+      if (currentToolAction === "wall" && mapStore.boxTraceMode) {
+        isBoxTracing = true;
+        traceBoxStart = { x: coords.exactX, y: coords.exactY };
+        traceBoxEnd = { x: coords.exactX, y: coords.exactY };
+        return;
       }
 
       currentGridX = coords.snapX;
@@ -1194,6 +1191,7 @@
     );
     mapStore.mouseX = coords.exactX.toFixed(2);
     mapStore.mouseY = coords.exactY.toFixed(2);
+
     if (isPanning) {
       panX = originalPan.x + (e.clientX - dragStart.x);
       panY = originalPan.y + (e.clientY - dragStart.y);
@@ -1204,16 +1202,19 @@
       mapStore.updateVisionToken(coords.exactX, coords.exactY);
       return;
     }
+
+    // --- DRAW THE PINK BOX ---
+    if (isBoxTracing) {
+      traceBoxEnd = { x: coords.exactX, y: coords.exactY };
+      drawTraceBox();
+      return;
+    }
+
     currentGridX = coords.snapX;
     currentGridY = coords.snapY;
     if (isBoxSelecting) {
       boxSelectEnd = { x: coords.exactX, y: coords.exactY };
       drawBoxSelection();
-      return;
-    }
-    if (isBoxTracing) {
-      traceBoxEnd = { x: coords.exactX, y: coords.exactY };
-      drawTraceBox();
       return;
     }
     if (["wall", "portal", "roof"].includes(currentToolAction)) {
@@ -1243,6 +1244,10 @@
       return;
     }
     isPanning = false;
+    draggedItemId = null;
+    lastDragGrid = null;
+
+    // --- TRIGGER THE GO KERNEL WHEN BOX IS RELEASED ---
     if (isBoxTracing && traceBoxStart && traceBoxEnd) {
       mapStore.traceBoxArea(
         traceBoxStart.x,
@@ -1259,8 +1264,7 @@
       }
       return;
     }
-    draggedItemId = null;
-    lastDragGrid = null;
+
     if (isBoxSelecting && boxSelectStart && boxSelectEnd) {
       const minX = Math.min(boxSelectStart.x, boxSelectEnd.x);
       const maxX = Math.max(boxSelectStart.x, boxSelectEnd.x);
@@ -1362,7 +1366,15 @@
       mapStore.duplicateSelected();
     }
     if (e.key === "Escape") {
-      if (isBoxSelecting) {
+      if (isBoxTracing) {
+        isBoxTracing = false;
+        traceBoxStart = null;
+        traceBoxEnd = null;
+        if (traceBoxGfx) {
+          traceBoxGfx.destroy();
+          traceBoxGfx = null;
+        }
+      } else if (isBoxSelecting) {
         isBoxSelecting = false;
         boxSelectStart = null;
         boxSelectEnd = null;
