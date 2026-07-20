@@ -377,7 +377,26 @@
     </div>
 
     <div class="properties-panel">
-      {#if displayCategory === "select"}
+{#if displayCategory === "select"}
+        <!-- SELECTION & CLIPBOARD ACTIONS -->
+        <div class="panel-section" style="border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.02);">
+          <h3 style="color: #38bdf8;">✂️ CLIPBOARD</h3>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+            <button class="action-btn" style="justify-content: center;" onclick={() => mapStore.copySelected()} disabled={mapStore.selectedItemIds.length === 0} title="Ctrl+C">
+              📄 Copy
+            </button>
+            <button class="action-btn" style="justify-content: center;" onclick={() => mapStore.pasteClipboard(0, 0)} disabled={mapStore.clipboard.length === 0} title="Ctrl+V">
+              📋 Paste
+            </button>
+            <button class="action-btn" style="justify-content: center;" onclick={() => mapStore.duplicateSelected()} disabled={mapStore.selectedItemIds.length === 0} title="Ctrl+D">
+              👯 Duplicate
+            </button>
+            <button class="action-btn" style="justify-content: center; color: #ef4444;" onclick={() => mapStore.deleteSelected()} disabled={mapStore.selectedItemIds.length === 0} title="Delete/Backspace">
+              🗑️ Delete
+            </button>
+          </div>
+        </div>
+
         <div class="panel-section">
           <h3>💾 FILE & EXPORT</h3>
           <label class="checkbox-row" style="margin-bottom: 8px;">
@@ -389,22 +408,85 @@
             <div style="display: flex; gap: 8px;">
               <button
                 class="action-btn wave"
-                onclick={() => mapStore.saveProject()}>📦 Save</button
+                style="flex: 1; justify-content: center;"
+                onclick={() => mapStore.saveProject()}
               >
+                📦 Save
+              </button>
               <button
                 class="action-btn"
-                style="background: #ef444422; border-color: #ef4444; color: #fca5a5;"
+                style="flex: 1; justify-content: center; background: #ef444422; border-color: #ef4444; color: #fca5a5;"
                 onclick={() => {
-                  if (
-                    confirm(
-                      "Close project and return to start screen? Unsaved changes will be lost.",
-                    )
-                  )
-                    mapStore.closeProject();
+                  if (confirm("Close project and return to start screen? Unsaved changes will be lost.")) mapStore.closeProject();
                 }}
               >
                 ❌ Close
               </button>
+            </div>
+
+            <!-- Clear History Memory Wipe -->
+            <button
+              class="action-btn"
+              style="justify-content: center; color: #f87171; border-color: rgba(248, 113, 113, 0.3);"
+              onclick={() => {
+                if (confirm("Clear undo/redo history? This cannot be undone, but will free up system memory.")) {
+                  mapStore.clearHistory();
+                }
+              }}
+            >
+              🧹 Clear History (Free Memory)
+            </button>
+
+            <!-- MAP CATALOG (LEVEL MANAGEMENT) -->
+            <div
+              class="panel-section"
+              style="border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.02); margin-top: 12px;"
+            >
+              <h3 style="color: #a855f7;">🗺️ MAP LEVELS</h3>
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                {#each mapStore.catalog as level}
+                  <div style="display: flex; gap: 4px; align-items: center;">
+                    <!-- Switch Map Button -->
+                    <button
+                      class="action-btn {mapStore.activeMapId === level.id ? 'wave' : ''}"
+                      style="flex: 1; border-color: {mapStore.activeMapId === level.id ? '#a855f7' : '#334155'}; color: {mapStore.activeMapId === level.id ? '#a855f7' : '#94a3b8'};"
+                      onclick={() => mapStore.switchMap(level.id)}
+                    >
+                      {level.filename}
+                    </button>
+
+                    <!-- Rename & Delete (Only show on active map) -->
+                    {#if mapStore.activeMapId === level.id}
+                      <button
+                        class="action-btn"
+                        style="padding: 4px 8px;"
+                        title="Rename Level"
+                        onclick={() => {
+                          const newName = prompt("Rename map level:", level.filename);
+                          if (newName) mapStore.renameMapLevel(level.id, newName);
+                        }}
+                      >✏️</button>
+
+                      <button
+                        class="action-btn"
+                        style="padding: 4px 8px; color: #ef4444; border-color: rgba(239,68,68,0.3);"
+                        title="Delete Level"
+                        onclick={() => {
+                          if (confirm("Delete this level entirely?")) mapStore.deleteMapLevel(level.id);
+                        }}
+                      >🗑️</button>
+                    {/if}
+                  </div>
+                {/each}
+
+                <button
+                  class="action-btn"
+                  style="justify-content: center; margin-top: 4px; border-style: dashed;"
+                  onclick={() => mapStore.addMapLevel()}
+                >
+                  ➕ Add Blank Level
+                </button>
+              </div>
             </div>
 
             <label
@@ -423,48 +505,34 @@
             <div style="display: flex; gap: 8px;">
               <button
                 class="action-btn"
-                onclick={() =>
-                  packageCompound
-                    ? mapStore.exportCompoundVTT(true)
-                    : mapStore.exportLegacyV1()}>⏳ Export v1</button
+                onclick={() => packageCompound ? mapStore.exportCompoundVTT(true) : mapStore.exportLegacyV1()}
               >
+                ⏳ Export v1
+              </button>
               <button
                 class="action-btn positive"
-                onclick={() =>
-                  packageCompound
-                    ? mapStore.exportCompoundVTT(false)
-                    : mapStore.exportVTT()}>📤 Compile v2</button
+                onclick={() => packageCompound ? mapStore.exportCompoundVTT(false) : mapStore.exportVTT()}
               >
+                📤 Compile v2
+              </button>
             </div>
 
             <button
               class="action-btn secure"
               onclick={() => mapStore.exportSecureVTT(packageCompound)}
-              >🔒 Secure Archive (.zip)</button
             >
+              🔒 Secure Archive (.zip)
+            </button>
           </div>
 
-          <div
-            style="margin-top: 12px; border-top: 1px solid #1e293b; padding-top: 10px;"
-          >
+          <div style="margin-top: 12px; border-top: 1px solid #1e293b; padding-top: 10px;">
             <h4 style="color: #64748b; font-size: 10px; margin-bottom: 8px;">
               PLATFORM EXPORTS
             </h4>
-            <div
-              style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;"
-            >
-              <button
-                class="action-btn"
-                onclick={() => handlePlatformExport("foundry")}>Foundry</button
-              >
-              <button
-                class="action-btn"
-                onclick={() => handlePlatformExport("roll20")}>Roll20</button
-              >
-              <button
-                class="action-btn"
-                onclick={() => handlePlatformExport("fg")}>FG</button
-              >
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;">
+              <button class="action-btn" onclick={() => handlePlatformExport("foundry")}>Foundry</button>
+              <button class="action-btn" onclick={() => handlePlatformExport("roll20")}>Roll20</button>
+              <button class="action-btn" onclick={() => handlePlatformExport("fg")}>FG</button>
             </div>
           </div>
 
@@ -479,12 +547,7 @@
             <span>Grid Topology:</span>
             <select
               value={manifest.resolution?.topology?.type || "square"}
-              onchange={(e) =>
-                mapStore.updateItemProperty(
-                  activeMap.id,
-                  "resolution.topology.type",
-                  e.target.value,
-                )}
+              onchange={(e) => mapStore.updateItemProperty(activeMap.id, "resolution.topology.type", e.target.value)}
             >
               <option value="square">Square</option>
               <option value="hex">Hexagonal</option>
@@ -496,12 +559,7 @@
             <input
               type="number"
               value={manifest.resolution?.pixels_per_grid}
-              onchange={(e) =>
-                mapStore.updateItemProperty(
-                  activeMap.id,
-                  "resolution.pixels_per_grid",
-                  parseFloat(e.target.value),
-                )}
+              onchange={(e) => mapStore.updateItemProperty(activeMap.id, "resolution.pixels_per_grid", parseFloat(e.target.value))}
             />
           </label>
           <label>
@@ -509,12 +567,7 @@
             <input
               type="color"
               value={manifest.resolution?.grid_color || "#ffffff"}
-              onchange={(e) =>
-                mapStore.updateItemProperty(
-                  activeMap.id,
-                  "resolution.grid_color",
-                  e.target.value,
-                )}
+              onchange={(e) => mapStore.updateItemProperty(activeMap.id, "resolution.grid_color", e.target.value)}
             />
           </label>
           <label>
@@ -526,12 +579,7 @@
                 max="10"
                 step="0.5"
                 value={manifest.resolution?.grid_line_width ?? 1.5}
-                oninput={(e) =>
-                  mapStore.updateItemProperty(
-                    activeMap.id,
-                    "resolution.grid_line_width",
-                    parseFloat(e.target.value),
-                  )}
+                oninput={(e) => mapStore.updateItemProperty(activeMap.id, "resolution.grid_line_width", parseFloat(e.target.value))}
               />
               <input
                 type="number"
@@ -539,12 +587,7 @@
                 max="10"
                 step="0.5"
                 value={manifest.resolution?.grid_line_width ?? 1.5}
-                onchange={(e) =>
-                  mapStore.updateItemProperty(
-                    activeMap.id,
-                    "resolution.grid_line_width",
-                    parseFloat(e.target.value),
-                  )}
+                onchange={(e) => mapStore.updateItemProperty(activeMap.id, "resolution.grid_line_width", parseFloat(e.target.value))}
               />
             </div>
           </label>
@@ -557,12 +600,7 @@
                 max="10"
                 step="0.5"
                 value={manifest.resolution?.subgrid_line_width ?? 1.0}
-                oninput={(e) =>
-                  mapStore.updateItemProperty(
-                    activeMap.id,
-                    "resolution.subgrid_line_width",
-                    parseFloat(e.target.value),
-                  )}
+                oninput={(e) => mapStore.updateItemProperty(activeMap.id, "resolution.subgrid_line_width", parseFloat(e.target.value))}
               />
               <input
                 type="number"
@@ -570,12 +608,7 @@
                 max="10"
                 step="0.5"
                 value={manifest.resolution?.subgrid_line_width ?? 1.0}
-                onchange={(e) =>
-                  mapStore.updateItemProperty(
-                    activeMap.id,
-                    "resolution.subgrid_line_width",
-                    parseFloat(e.target.value),
-                  )}
+                onchange={(e) => mapStore.updateItemProperty(activeMap.id, "resolution.subgrid_line_width", parseFloat(e.target.value))}
               />
             </div>
           </label>
@@ -587,12 +620,7 @@
             <span>Background Soundtrack:</span>
             <select
               value={manifest.music?.track || ""}
-              onchange={(e) =>
-                mapStore.updateItemProperty(
-                  activeMap.id,
-                  "music.track",
-                  e.target.value,
-                )}
+              onchange={(e) => mapStore.updateItemProperty(activeMap.id, "music.track", e.target.value)}
             >
               <option value="">-- No Track --</option>
               {#each Object.keys(mapStore.audioBlobs) as track}
@@ -604,12 +632,7 @@
             <span>Ambient Soundscape:</span>
             <select
               value={manifest.ambience?.track || ""}
-              onchange={(e) =>
-                mapStore.updateItemProperty(
-                  activeMap.id,
-                  "ambience.track",
-                  e.target.value,
-                )}
+              onchange={(e) => mapStore.updateItemProperty(activeMap.id, "ambience.track", e.target.value)}
             >
               <option value="">-- No Track --</option>
               {#each Object.keys(mapStore.audioBlobs) as track}
@@ -618,6 +641,7 @@
             </select>
           </label>
         </div>
+      {/if}
       {:else if displayCategory === "asset"}
         <div class="panel-section">
           <h3>📂 LOCAL ASSET LIBRARY</h3>
