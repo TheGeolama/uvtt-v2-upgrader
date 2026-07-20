@@ -377,48 +377,88 @@
     </div>
 
     <div class="properties-panel">
-    {#if displayCategory === "select"}
+      {#if displayCategory === "select"}
         <!-- SELECTION & CLIPBOARD ACTIONS -->
-        <div class="panel-section" style="border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.02);">
+        <div
+          class="panel-section"
+          style="border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.02);"
+        >
           <h3 style="color: #38bdf8;">✂️ CLIPBOARD</h3>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
-            <button class="action-btn" style="justify-content: center;" onclick={() => mapStore.copySelected()} disabled={mapStore.selectedItemIds.length === 0} title="Ctrl+C">
+            <button
+              class="action-btn"
+              style="justify-content: center;"
+              onclick={() => mapStore.copySelected()}
+              disabled={mapStore.selectedItemIds.length === 0}
+              title="Ctrl+C"
+            >
               📄 Copy
             </button>
-            <button class="action-btn" style="justify-content: center;" onclick={() => mapStore.pasteClipboard(0, 0)} disabled={mapStore.clipboard.length === 0} title="Ctrl+V">
+            <button
+              class="action-btn"
+              style="justify-content: center;"
+              onclick={() => mapStore.pasteClipboard(0, 0)}
+              disabled={mapStore.clipboard.length === 0}
+              title="Ctrl+V"
+            >
               📋 Paste
             </button>
-            <button class="action-btn" style="justify-content: center;" onclick={() => mapStore.duplicateSelected()} disabled={mapStore.selectedItemIds.length === 0} title="Ctrl+D">
+            <button
+              class="action-btn"
+              style="justify-content: center;"
+              onclick={() => mapStore.duplicateSelected()}
+              disabled={mapStore.selectedItemIds.length === 0}
+              title="Ctrl+D"
+            >
               👯 Duplicate
             </button>
-            <button class="action-btn" style="justify-content: center; color: #ef4444;" onclick={() => mapStore.deleteSelected()} disabled={mapStore.selectedItemIds.length === 0} title="Delete/Backspace">
+            <button
+              class="action-btn"
+              style="justify-content: center; color: #ef4444;"
+              onclick={() => mapStore.deleteSelected()}
+              disabled={mapStore.selectedItemIds.length === 0}
+              title="Delete/Backspace"
+            >
               🗑️ Delete
             </button>
           </div>
         </div>
         <!-- SELECTED ITEM PROPERTIES -->
         {#if mapStore.selectedItemIds.length > 0}
-          <div class="panel-section" style="border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.02); margin-top: 12px;">
-            <h3 style="color: #f59e0b;">🎛️ SELECTED PROPERTIES ({mapStore.selectedItemIds.length})</h3>
-            
-            <label style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px;">
+          <div
+            class="panel-section"
+            style="border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.02); margin-top: 12px;"
+          >
+            <h3 style="color: #f59e0b;">
+              🎛️ SELECTED PROPERTIES ({mapStore.selectedItemIds.length})
+            </h3>
+
+            <label
+              style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px;"
+            >
               Universal Visibility (Player View)
-              <select 
+              <select
                 style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
                 onchange={(e) => {
-                  mapStore.selectedItemIds.forEach(id => {
-                    mapStore.updateItemProperty(id, "properties.visibility", e.target.value);
+                  mapStore.selectedItemIds.forEach((id) => {
+                    mapStore.updateItemProperty(
+                      id,
+                      "properties.visibility",
+                      e.target.value,
+                    );
                   });
                 }}
               >
                 <option value="visible">👁️ Visible to Everyone</option>
-                <option value="gm_only">🕵️ GM Only (Hidden from Players)</option>
+                <option value="gm_only">🕵️ GM Only (Hidden from Players)</option
+                >
                 <option value="hidden">🚫 Completely Disabled</option>
               </select>
             </label>
 
             <p class="helper-text" style="margin-top: 8px; font-size: 10px;">
-              <strong>GM Only:</strong> VTTs will load this object for the GM, but never send it to connected players until triggered.
+              <strong>GM Only:</strong> VTTs will load this object for the GM, but
+              never send it to connected players until triggered.
             </p>
           </div>
         {/if}
@@ -442,7 +482,12 @@
                 class="action-btn"
                 style="flex: 1; justify-content: center; background: #ef444422; border-color: #ef4444; color: #fca5a5;"
                 onclick={() => {
-                  if (confirm("Close project and return to start screen? Unsaved changes will be lost.")) mapStore.closeProject();
+                  if (
+                    confirm(
+                      "Close project and return to start screen? Unsaved changes will be lost.",
+                    )
+                  )
+                    mapStore.closeProject();
                 }}
               >
                 ❌ Close
@@ -454,7 +499,11 @@
               class="action-btn"
               style="justify-content: center; color: #f87171; border-color: rgba(248, 113, 113, 0.3);"
               onclick={() => {
-                if (confirm("Clear undo/redo history? This cannot be undone, but will free up system memory.")) {
+                if (
+                  confirm(
+                    "Clear undo/redo history? This cannot be undone, but will free up system memory.",
+                  )
+                ) {
                   mapStore.clearHistory();
                 }
               }}
@@ -473,8 +522,15 @@
                   <div style="display: flex; gap: 4px; align-items: center;">
                     <!-- Switch Map Button -->
                     <button
-                      class="action-btn {mapStore.activeMapId === level.id ? 'wave' : ''}"
-                      style="flex: 1; border-color: {mapStore.activeMapId === level.id ? '#a855f7' : '#334155'}; color: {mapStore.activeMapId === level.id ? '#a855f7' : '#94a3b8'};"
+                      class="action-btn {mapStore.activeMapId === level.id
+                        ? 'wave'
+                        : ''}"
+                      style="flex: 1; border-color: {mapStore.activeMapId ===
+                      level.id
+                        ? '#a855f7'
+                        : '#334155'}; color: {mapStore.activeMapId === level.id
+                        ? '#a855f7'
+                        : '#94a3b8'};"
                       onclick={() => mapStore.switchMap(level.id)}
                     >
                       {level.filename}
@@ -487,19 +543,24 @@
                         style="padding: 4px 8px;"
                         title="Rename Level"
                         onclick={() => {
-                          const newName = prompt("Rename map level:", level.filename);
-                          if (newName) mapStore.renameMapLevel(level.id, newName);
-                        }}
-                      >✏️</button>
+                          const newName = prompt(
+                            "Rename map level:",
+                            level.filename,
+                          );
+                          if (newName)
+                            mapStore.renameMapLevel(level.id, newName);
+                        }}>✏️</button
+                      >
 
                       <button
                         class="action-btn"
                         style="padding: 4px 8px; color: #ef4444; border-color: rgba(239,68,68,0.3);"
                         title="Delete Level"
                         onclick={() => {
-                          if (confirm("Delete this level entirely?")) mapStore.deleteMapLevel(level.id);
-                        }}
-                      >🗑️</button>
+                          if (confirm("Delete this level entirely?"))
+                            mapStore.deleteMapLevel(level.id);
+                        }}>🗑️</button
+                      >
                     {/if}
                   </div>
                 {/each}
@@ -530,13 +591,19 @@
             <div style="display: flex; gap: 8px;">
               <button
                 class="action-btn"
-                onclick={() => packageCompound ? mapStore.exportCompoundVTT(true) : mapStore.exportLegacyV1()}
+                onclick={() =>
+                  packageCompound
+                    ? mapStore.exportCompoundVTT(true)
+                    : mapStore.exportLegacyV1()}
               >
                 ⏳ Export v1
               </button>
               <button
                 class="action-btn positive"
-                onclick={() => packageCompound ? mapStore.exportCompoundVTT(false) : mapStore.exportVTT()}
+                onclick={() =>
+                  packageCompound
+                    ? mapStore.exportCompoundVTT(false)
+                    : mapStore.exportVTT()}
               >
                 📤 Compile v2
               </button>
@@ -550,14 +617,27 @@
             </button>
           </div>
 
-          <div style="margin-top: 12px; border-top: 1px solid #1e293b; padding-top: 10px;">
+          <div
+            style="margin-top: 12px; border-top: 1px solid #1e293b; padding-top: 10px;"
+          >
             <h4 style="color: #64748b; font-size: 10px; margin-bottom: 8px;">
               PLATFORM EXPORTS
             </h4>
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;">
-              <button class="action-btn" onclick={() => handlePlatformExport("foundry")}>Foundry</button>
-              <button class="action-btn" onclick={() => handlePlatformExport("roll20")}>Roll20</button>
-              <button class="action-btn" onclick={() => handlePlatformExport("fg")}>FG</button>
+            <div
+              style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;"
+            >
+              <button
+                class="action-btn"
+                onclick={() => handlePlatformExport("foundry")}>Foundry</button
+              >
+              <button
+                class="action-btn"
+                onclick={() => handlePlatformExport("roll20")}>Roll20</button
+              >
+              <button
+                class="action-btn"
+                onclick={() => handlePlatformExport("fg")}>FG</button
+              >
             </div>
           </div>
 
@@ -572,7 +652,12 @@
             <span>Grid Topology:</span>
             <select
               value={manifest.resolution?.topology?.type || "square"}
-              onchange={(e) => mapStore.updateItemProperty(activeMap.id, "resolution.topology.type", e.target.value)}
+              onchange={(e) =>
+                mapStore.updateItemProperty(
+                  activeMap.id,
+                  "resolution.topology.type",
+                  e.target.value,
+                )}
             >
               <option value="square">Square</option>
               <option value="hex">Hexagonal</option>
@@ -584,7 +669,12 @@
             <input
               type="number"
               value={manifest.resolution?.pixels_per_grid}
-              onchange={(e) => mapStore.updateItemProperty(activeMap.id, "resolution.pixels_per_grid", parseFloat(e.target.value))}
+              onchange={(e) =>
+                mapStore.updateItemProperty(
+                  activeMap.id,
+                  "resolution.pixels_per_grid",
+                  parseFloat(e.target.value),
+                )}
             />
           </label>
           <label>
@@ -592,7 +682,12 @@
             <input
               type="color"
               value={manifest.resolution?.grid_color || "#ffffff"}
-              onchange={(e) => mapStore.updateItemProperty(activeMap.id, "resolution.grid_color", e.target.value)}
+              onchange={(e) =>
+                mapStore.updateItemProperty(
+                  activeMap.id,
+                  "resolution.grid_color",
+                  e.target.value,
+                )}
             />
           </label>
           <label>
@@ -604,7 +699,12 @@
                 max="10"
                 step="0.5"
                 value={manifest.resolution?.grid_line_width ?? 1.5}
-                oninput={(e) => mapStore.updateItemProperty(activeMap.id, "resolution.grid_line_width", parseFloat(e.target.value))}
+                oninput={(e) =>
+                  mapStore.updateItemProperty(
+                    activeMap.id,
+                    "resolution.grid_line_width",
+                    parseFloat(e.target.value),
+                  )}
               />
               <input
                 type="number"
@@ -612,7 +712,12 @@
                 max="10"
                 step="0.5"
                 value={manifest.resolution?.grid_line_width ?? 1.5}
-                onchange={(e) => mapStore.updateItemProperty(activeMap.id, "resolution.grid_line_width", parseFloat(e.target.value))}
+                onchange={(e) =>
+                  mapStore.updateItemProperty(
+                    activeMap.id,
+                    "resolution.grid_line_width",
+                    parseFloat(e.target.value),
+                  )}
               />
             </div>
           </label>
@@ -625,7 +730,12 @@
                 max="10"
                 step="0.5"
                 value={manifest.resolution?.subgrid_line_width ?? 1.0}
-                oninput={(e) => mapStore.updateItemProperty(activeMap.id, "resolution.subgrid_line_width", parseFloat(e.target.value))}
+                oninput={(e) =>
+                  mapStore.updateItemProperty(
+                    activeMap.id,
+                    "resolution.subgrid_line_width",
+                    parseFloat(e.target.value),
+                  )}
               />
               <input
                 type="number"
@@ -633,7 +743,12 @@
                 max="10"
                 step="0.5"
                 value={manifest.resolution?.subgrid_line_width ?? 1.0}
-                onchange={(e) => mapStore.updateItemProperty(activeMap.id, "resolution.subgrid_line_width", parseFloat(e.target.value))}
+                onchange={(e) =>
+                  mapStore.updateItemProperty(
+                    activeMap.id,
+                    "resolution.subgrid_line_width",
+                    parseFloat(e.target.value),
+                  )}
               />
             </div>
           </label>
@@ -645,7 +760,12 @@
             <span>Background Soundtrack:</span>
             <select
               value={manifest.music?.track || ""}
-              onchange={(e) => mapStore.updateItemProperty(activeMap.id, "music.track", e.target.value)}
+              onchange={(e) =>
+                mapStore.updateItemProperty(
+                  activeMap.id,
+                  "music.track",
+                  e.target.value,
+                )}
             >
               <option value="">-- No Track --</option>
               {#each Object.keys(mapStore.audioBlobs) as track}
@@ -657,7 +777,12 @@
             <span>Ambient Soundscape:</span>
             <select
               value={manifest.ambience?.track || ""}
-              onchange={(e) => mapStore.updateItemProperty(activeMap.id, "ambience.track", e.target.value)}
+              onchange={(e) =>
+                mapStore.updateItemProperty(
+                  activeMap.id,
+                  "ambience.track",
+                  e.target.value,
+                )}
             >
               <option value="">-- No Track --</option>
               {#each Object.keys(mapStore.audioBlobs) as track}
@@ -666,7 +791,6 @@
             </select>
           </label>
         </div>
-      {/if}
       {:else if displayCategory === "asset"}
         <div class="panel-section">
           <h3>📂 LOCAL ASSET LIBRARY</h3>
@@ -1472,126 +1596,245 @@
               />
               <span>Set as Default Landing Zone</span>
             </label>
-        {:else if displayCategory === "event"}
-        <div class="panel-section" style="border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.02);">
-          <h3 style="color: #a855f7;">📝 EVENT CONFIG</h3>
-          <label style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px;">
-            Trigger Type
-            <select 
-              style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
-              value={selectedItem ? selectedItem.eventType : mapStore.defaultSettings.event.eventType}
-              onchange={(e) => {
-                if (selectedItem) mapStore.updateItemProperty(selectedItem.id, "eventType", e.target.value);
-                else mapStore.updateDefaultSetting("event", "eventType", e.target.value);
-              }}
+          {:else if displayCategory === "event"}
+            <div
+              class="panel-section"
+              style="border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.02);"
             >
-              <option value="Trap/Door Trigger">Trap/Door Trigger</option>
-              <option value="Teleport">Teleport</option>
-              <option value="Stairs/Ladder">Stairs/Ladder</option>
-              <option value="State Toggle">State Toggle (Reveal/Hide/Open)</option> 
-            </select>
-          </label>
+              <h3 style="color: #a855f7;">📝 EVENT CONFIG</h3>
+              <label
+                style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px;"
+              >
+                Trigger Type
+                <select
+                  style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
+                  value={selectedItem
+                    ? selectedItem.eventType
+                    : mapStore.defaultSettings.event.eventType}
+                  onchange={(e) => {
+                    if (selectedItem)
+                      mapStore.updateItemProperty(
+                        selectedItem.id,
+                        "eventType",
+                        e.target.value,
+                      );
+                    else
+                      mapStore.updateDefaultSetting(
+                        "event",
+                        "eventType",
+                        e.target.value,
+                      );
+                  }}
+                >
+                  <option value="Trap/Door Trigger">Trap/Door Trigger</option>
+                  <option value="Teleport">Teleport</option>
+                  <option value="Stairs/Ladder">Stairs/Ladder</option>
+                  <option value="State Toggle"
+                    >State Toggle (Reveal/Hide/Open)</option
+                  >
+                </select>
+              </label>
 
-          {#if (selectedItem ? selectedItem.eventType : mapStore.defaultSettings.event.eventType) === "State Toggle"}
-            <label style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; margin-top: 8px;">
-              Target Action
-              <select
-                style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
-                value={selectedItem ? selectedItem.target_action : mapStore.defaultSettings.event.target_action}
-                onchange={(e) => {
-                  if (selectedItem) mapStore.updateItemProperty(selectedItem.id, "target_action", e.target.value);
-                  else mapStore.updateDefaultSetting("event", "target_action", e.target.value);
-                }}
-              >
-                <option value="toggle_visibility">Toggle Visibility (GM Only ↔ Visible)</option>
-                <option value="set_visible">Force Reveal (Set Visible)</option>
-                <option value="set_hidden">Force Hide (Set GM Only)</option>
-                <option value="toggle_portal">Toggle Door/Window (Open/Close)</option>
-              </select>
-            </label>
+              {#if (selectedItem ? selectedItem.eventType : mapStore.defaultSettings.event.eventType) === "State Toggle"}
+                <label
+                  style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; margin-top: 8px;"
+                >
+                  Target Action
+                  <select
+                    style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
+                    value={selectedItem
+                      ? selectedItem.target_action
+                      : mapStore.defaultSettings.event.target_action}
+                    onchange={(e) => {
+                      if (selectedItem)
+                        mapStore.updateItemProperty(
+                          selectedItem.id,
+                          "target_action",
+                          e.target.value,
+                        );
+                      else
+                        mapStore.updateDefaultSetting(
+                          "event",
+                          "target_action",
+                          e.target.value,
+                        );
+                    }}
+                  >
+                    <option value="toggle_visibility"
+                      >Toggle Visibility (GM Only ↔ Visible)</option
+                    >
+                    <option value="set_visible"
+                      >Force Reveal (Set Visible)</option
+                    >
+                    <option value="set_hidden">Force Hide (Set GM Only)</option>
+                    <option value="toggle_portal"
+                      >Toggle Door/Window (Open/Close)</option
+                    >
+                  </select>
+                </label>
 
-            <label style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; margin-top: 8px;">
-              Target Entities (Hold Ctrl/Cmd to Multi-Select)
-              <select
-                multiple
-                style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px; height: 110px;"
-                onchange={(e) => {
-                  const selectedOptions = Array.from(e.target.selectedOptions).map(opt => opt.value);
-                  if (selectedItem) mapStore.updateItemProperty(selectedItem.id, "target_entity_ids", selectedOptions);
-                  else mapStore.updateDefaultSetting("event", "target_entity_ids", selectedOptions);
-                }}
-              >
-                <optgroup label="Props / Tokens">
-                  {#each mapStore.activeMap?.manifest?.entities?.props || [] as prop}
-                    <option value={prop.id} selected={(selectedItem ? selectedItem.target_entity_ids : mapStore.defaultSettings.event.target_entity_ids)?.includes(prop.id)}>{prop.name || 'Unnamed Prop'}</option>
-                  {/each}
-                </optgroup>
-                <optgroup label="Portals (Doors/Windows)">
-                  {#each mapStore.activeMap?.manifest?.geometry?.portals || [] as portal}
-                    <option value={portal.id} selected={(selectedItem ? selectedItem.target_entity_ids : mapStore.defaultSettings.event.target_entity_ids)?.includes(portal.id)}>{portal.properties?.type || 'Portal'} ({portal.id.substring(0,6)})</option>
-                  {/each}
-                </optgroup>
-                <optgroup label="Audio Zones">
-                  {#each mapStore.activeMap?.manifest?.entities?.audio?.zones || [] as audio}
-                    <option value={audio.id} selected={(selectedItem ? selectedItem.target_entity_ids : mapStore.defaultSettings.event.target_entity_ids)?.includes(audio.id)}>{audio.track || 'Unnamed Audio'}</option>
-                  {/each}
-                </optgroup>
-              </select>
-            </label>
-
-          {:else if ["Teleport", "Stairs/Ladder"].includes(selectedItem ? selectedItem.eventType : mapStore.defaultSettings.event.eventType)}
-            <label style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; margin-top: 8px;">
-              Target Floor
-              <select 
-                style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
-                value={selectedItem ? selectedItem.targetFloorId : mapStore.defaultSettings.event.targetFloorId}
-                onchange={(e) => {
-                  if (selectedItem) mapStore.updateItemProperty(selectedItem.id, "targetFloorId", e.target.value);
-                  else mapStore.updateDefaultSetting("event", "targetFloorId", e.target.value);
-                }}
-              >
-                <option value="">-- Same Floor --</option>
-                {#each mapStore.catalog as level}
-                  <option value={level.id}>{level.filename}</option>
-                {/each}
-              </select>
-            </label>
-            
-            <label style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; margin-top: 8px;">
-              Destination Spawn Point
-              <select 
-                style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
-                value={selectedItem ? selectedItem.targetSpawnId : mapStore.defaultSettings.event.targetSpawnId}
-                onchange={(e) => {
-                  if (selectedItem) mapStore.updateItemProperty(selectedItem.id, "targetSpawnId", e.target.value);
-                  else mapStore.updateDefaultSetting("event", "targetSpawnId", e.target.value);
-                }}
-              >
-                <option value="">-- Select Destination --</option>
-                {#each mapStore.catalog as level}
-                  {#if !selectedItem?.targetFloorId || selectedItem.targetFloorId === level.id || (!selectedItem && mapStore.defaultSettings.event.targetFloorId === level.id)}
-                    <optgroup label={level.filename}>
-                      {#each level.manifest.entities?.landing_zones || [] as spawn}
-                        <option value={spawn.id}>{spawn.name || 'Unnamed Spawn'}</option>
+                <label
+                  style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; margin-top: 8px;"
+                >
+                  Target Entities (Hold Ctrl/Cmd to Multi-Select)
+                  <select
+                    multiple
+                    style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px; height: 110px;"
+                    onchange={(e) => {
+                      const selectedOptions = Array.from(
+                        e.target.selectedOptions,
+                      ).map((opt) => opt.value);
+                      if (selectedItem)
+                        mapStore.updateItemProperty(
+                          selectedItem.id,
+                          "target_entity_ids",
+                          selectedOptions,
+                        );
+                      else
+                        mapStore.updateDefaultSetting(
+                          "event",
+                          "target_entity_ids",
+                          selectedOptions,
+                        );
+                    }}
+                  >
+                    <optgroup label="Props / Tokens">
+                      {#each mapStore.activeMap?.manifest?.entities?.props || [] as prop}
+                        <option
+                          value={prop.id}
+                          selected={(selectedItem
+                            ? selectedItem.target_entity_ids
+                            : mapStore.defaultSettings.event.target_entity_ids
+                          )?.includes(prop.id)}
+                          >{prop.name || "Unnamed Prop"}</option
+                        >
                       {/each}
                     </optgroup>
-                  {/if}
-                {/each}
-              </select>
-            </label>
-            
-            <label class="checkbox-row" style="margin-top: 8px;">
-              <input type="checkbox" 
-                checked={selectedItem ? selectedItem.autoCreateMatch : mapStore.defaultSettings.event.autoCreateMatch}
-                onchange={(e) => {
-                  if (selectedItem) mapStore.updateItemProperty(selectedItem.id, "autoCreateMatch", e.target.checked);
-                  else mapStore.updateDefaultSetting("event", "autoCreateMatch", e.target.checked);
-                }}
-              />
-              <span>Auto-Create Return Spawn</span>
-            </label>
-          {/if}
-        </div>
+                    <optgroup label="Portals (Doors/Windows)">
+                      {#each mapStore.activeMap?.manifest?.geometry?.portals || [] as portal}
+                        <option
+                          value={portal.id}
+                          selected={(selectedItem
+                            ? selectedItem.target_entity_ids
+                            : mapStore.defaultSettings.event.target_entity_ids
+                          )?.includes(portal.id)}
+                          >{portal.properties?.type || "Portal"} ({portal.id.substring(
+                            0,
+                            6,
+                          )})</option
+                        >
+                      {/each}
+                    </optgroup>
+                    <optgroup label="Audio Zones">
+                      {#each mapStore.activeMap?.manifest?.entities?.audio?.zones || [] as audio}
+                        <option
+                          value={audio.id}
+                          selected={(selectedItem
+                            ? selectedItem.target_entity_ids
+                            : mapStore.defaultSettings.event.target_entity_ids
+                          )?.includes(audio.id)}
+                          >{audio.track || "Unnamed Audio"}</option
+                        >
+                      {/each}
+                    </optgroup>
+                  </select>
+                </label>
+              {:else if ["Teleport", "Stairs/Ladder"].includes(selectedItem ? selectedItem.eventType : mapStore.defaultSettings.event.eventType)}
+                <label
+                  style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; margin-top: 8px;"
+                >
+                  Target Floor
+                  <select
+                    style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
+                    value={selectedItem
+                      ? selectedItem.targetFloorId
+                      : mapStore.defaultSettings.event.targetFloorId}
+                    onchange={(e) => {
+                      if (selectedItem)
+                        mapStore.updateItemProperty(
+                          selectedItem.id,
+                          "targetFloorId",
+                          e.target.value,
+                        );
+                      else
+                        mapStore.updateDefaultSetting(
+                          "event",
+                          "targetFloorId",
+                          e.target.value,
+                        );
+                    }}
+                  >
+                    <option value="">-- Same Floor --</option>
+                    {#each mapStore.catalog as level}
+                      <option value={level.id}>{level.filename}</option>
+                    {/each}
+                  </select>
+                </label>
+
+                <label
+                  style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; margin-top: 8px;"
+                >
+                  Destination Spawn Point
+                  <select
+                    style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
+                    value={selectedItem
+                      ? selectedItem.targetSpawnId
+                      : mapStore.defaultSettings.event.targetSpawnId}
+                    onchange={(e) => {
+                      if (selectedItem)
+                        mapStore.updateItemProperty(
+                          selectedItem.id,
+                          "targetSpawnId",
+                          e.target.value,
+                        );
+                      else
+                        mapStore.updateDefaultSetting(
+                          "event",
+                          "targetSpawnId",
+                          e.target.value,
+                        );
+                    }}
+                  >
+                    <option value="">-- Select Destination --</option>
+                    {#each mapStore.catalog as level}
+                      {#if !selectedItem?.targetFloorId || selectedItem.targetFloorId === level.id || (!selectedItem && mapStore.defaultSettings.event.targetFloorId === level.id)}
+                        <optgroup label={level.filename}>
+                          {#each level.manifest.entities?.landing_zones || [] as spawn}
+                            <option value={spawn.id}
+                              >{spawn.name || "Unnamed Spawn"}</option
+                            >
+                          {/each}
+                        </optgroup>
+                      {/if}
+                    {/each}
+                  </select>
+                </label>
+
+                <label class="checkbox-row" style="margin-top: 8px;">
+                  <input
+                    type="checkbox"
+                    checked={selectedItem
+                      ? selectedItem.autoCreateMatch
+                      : mapStore.defaultSettings.event.autoCreateMatch}
+                    onchange={(e) => {
+                      if (selectedItem)
+                        mapStore.updateItemProperty(
+                          selectedItem.id,
+                          "autoCreateMatch",
+                          e.target.checked,
+                        );
+                      else
+                        mapStore.updateDefaultSetting(
+                          "event",
+                          "autoCreateMatch",
+                          e.target.checked,
+                        );
+                    }}
+                  />
+                  <span>Auto-Create Return Spawn</span>
+                </label>
+              {/if}
+            </div>
           {:else if displayCategory === "audio"}
             <label>
               <span>Audio Track:</span>
