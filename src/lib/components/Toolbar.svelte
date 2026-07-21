@@ -2419,14 +2419,6 @@
     border: 1px solid #00f0ff;
   }
 
-  .auto-match-panel {
-    background: rgba(0, 240, 255, 0.05);
-    border: 1px dashed rgba(0, 240, 255, 0.3);
-    padding: 10px;
-    border-radius: 6px;
-    margin-top: 5px;
-  }
-
   .helper-text {
     font-size: 11px;
     color: #94a3b8;
