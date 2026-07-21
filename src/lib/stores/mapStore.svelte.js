@@ -231,7 +231,6 @@ class MapStore {
         roof: { properties: { tint: '#475569', opacity: 100, hidden: false, bottom: 10.0, top: 20.0, visibility: 'visible' } },
         light: { type: 'point', position: { z: 0 }, properties: { color: '#ffffff', intensity: 1.0, decay_model: 'inverse_square', radius: { bright: 5.0, dim: 10.0 }, animation: { profile: 'none', speed: 0.5, intensity_variance: 0.2 }, rotation: 0, cone_angle: 60, visibility: 'visible' } },
         spawn: { name: 'New Spawn', shape: 'circle', is_default: false, heading_degrees: 0.0, properties: { visibility: 'visible' } },
-        // NEW: Event object now inherently supports target_entity_ids and target_action for state toggles
         event: { name: 'New Event', eventType: 'State Toggle', activation: 'proximity', trigger_bounds: { radius: 0.5 }, targetSpawnId: "", autoCreateMatch: false, targetFloorId: "", target_entity_ids: [], target_action: "toggle_visibility", properties: { visibility: 'visible' } },
         audio: { track: "", volume: 100, radius: 5, inner_radius: 2.5, muffledByWalls: true, properties: { visibility: 'visible' } },
         emitter: { type: 'weather', style: 'rain', isGlobal: false, layering: 'above', tint: '#ffffff', scale: 100, direction: 180, speed: 50, intensity: 50, variance: 10, graphic: '', position: { z: 0 }, properties: { visibility: 'visible' } },
@@ -931,6 +930,20 @@ class MapStore {
             return;
         }
         this.catalog = this.catalog.filter(m => m.id !== id);
+
+        // --- CASCADING DELETION SWEEP ---
+        // Nullify any teleport events attempting to route to the deleted floor
+        this.catalog.forEach(mapDef => {
+            if (mapDef.manifest?.entities?.events) {
+                mapDef.manifest.entities.events.forEach(ev => {
+                    if (ev.targetFloorId === id) {
+                        ev.targetFloorId = "";
+                        ev.targetSpawnId = ""; 
+                    }
+                });
+            }
+        });
+
         if (this.activeMapId === id) {
             this.switchMap(this.catalog[0].id);
         } else {
@@ -1114,9 +1127,19 @@ class MapStore {
                         item.path = [...item.path];
                         item.path.splice(i, 1);
                         
+                        // If deleting this node destroys the line entirely...
                         if (item.path.length < 2) {
                             newItems.splice(itemIdx, 1);
                             this.selectedItemIds = this.selectedItemIds.filter(id => id !== item.id);
+                            
+                            // --- CASCADING DELETION SWEEP ---
+                            this.catalog.forEach(mapDef => {
+                                mapDef.manifest?.entities?.events?.forEach(ev => {
+                                    if (ev.target_entity_ids) {
+                                        ev.target_entity_ids = ev.target_entity_ids.filter(tid => tid !== item.id);
+                                    }
+                                });
+                            });
                         } else {
                             newItems[itemIdx] = item;
                         }
@@ -1534,7 +1557,7 @@ class MapStore {
                 if (item) {
                     if (item.position) { item.position.x += dx; item.position.y += dy; }
                     if (item.coordinates) { item.coordinates[0] += dx; item.coordinates[1] += dy; }
-                    if (item.trigger_bounds?.center) { item.trigger_bounds.center.x += dx; item.trigger_bounds.center.y += dy; }
+                    if (item.trigger_bounds?.center) { item.trigger_bounds.center.x += dx; item.trigger_bounds.center.y += dx; }
                 }
             });
             const aud = m.entities.audio?.zones?.find(i => i.id === id);
@@ -1548,6 +1571,7 @@ class MapStore {
         const activeMap = this.activeMap;
         if (!activeMap || this.selectedItemIds.length === 0) return;
         const m = activeMap.manifest;
+        const deletedIds = new Set(this.selectedItemIds); // Store for sweeping later
 
         const removeById = (arr) => {
             if (!Array.isArray(arr)) return;
@@ -1573,6 +1597,20 @@ class MapStore {
                 removeById(m.entities.audio.zones);
             }
         }
+
+        // --- CASCADING DELETION SWEEP ---
+        this.catalog.forEach(mapDef => {
+            if (mapDef.manifest?.entities?.events) {
+                mapDef.manifest.entities.events.forEach(ev => {
+                    if (ev.target_entity_ids && Array.isArray(ev.target_entity_ids)) {
+                        ev.target_entity_ids = ev.target_entity_ids.filter(tid => !deletedIds.has(tid));
+                    }
+                    if (deletedIds.has(ev.targetSpawnId)) {
+                        ev.targetSpawnId = "";
+                    }
+                });
+            }
+        });
 
         this.selectedItemIds = [];
         this.pushHistory("Deleted Selection");
