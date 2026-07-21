@@ -50,6 +50,7 @@
 
   let isPixiReady = $state(false);
   let isDraggingVisionToken = $state(false);
+  let showGridHUD = $state(true);
 
   let draftingPath = $state([]);
   let draftingPreview = $state(null);
@@ -86,11 +87,9 @@
   }
 
   // --- GEOMETRY & TARGETING HELPER ---
-  // A universal helper to find the physical center of ANY entity or geometry line by its ID
   function getEntityCenter(id, manifest) {
     if (!id || !manifest) return null;
 
-    // Check Geometry Lines (Return the centroid of the vector path)
     for (const cat of ["walls", "portals", "overhead"]) {
       const item = manifest.geometry?.[cat]?.find((i) => i.id === id);
       if (item && item.path && item.path.length > 0) {
@@ -104,7 +103,6 @@
       }
     }
 
-    // Check Point Entities
     const prop = manifest.entities?.props?.find((i) => i.id === id);
     if (prop) return { x: Number(prop.position.x), y: Number(prop.position.y) };
 
@@ -279,7 +277,6 @@
     }
   }
 
-  // Helper to extract alpha modifier based on visibility
   function getVisAlpha(item) {
     if (!item || !item.properties) return 1.0;
     if (item.properties.visibility === "hidden") return 0.2;
@@ -310,7 +307,6 @@
     const mapWidth = res.map_size[0] * gridX;
     const mapHeight = res.map_size[1] * gridY;
 
-    // HIGH-VISIBILITY PINNED ORIGIN MARKER
     if (activeTool === "grid_align") {
       const originMark = new PIXI.Graphics();
       gridContainer.addChild(originMark);
@@ -329,7 +325,6 @@
         .stroke({ width: 2, color: 0xef4444, alpha: 0.8 });
     }
 
-    // --- DYNAMIC BOUNDING BOX GRID RENDERING ---
     const offX = Number(res.map_offset_x) || 0;
     const offY = Number(res.map_offset_y) || 0;
     const minX = offX;
@@ -483,18 +478,23 @@
       } else if (ent.trigger_bounds) {
         const px = (Number(ent.trigger_bounds.center.x) - originX) * gridX;
         const py = (Number(ent.trigger_bounds.center.y) - originY) * gridY;
-        const rad = (Number(ent.trigger_bounds.radius) || 2) * gridX;
+        const w = (Number(ent.trigger_bounds.width) || 1) * gridX;
+        const h = (Number(ent.trigger_bounds.height) || 1) * gridY;
         entGfx
-          .rect(px - rad, py - rad, rad * 2, rad * 2)
+          .rect(px - w / 2, py - h / 2, w, h)
           .fill({ color: 0xa855f7, alpha: 0.1 * vAlpha })
           .stroke({ width: 2, color: 0xa855f7, alpha: 0.6 * vAlpha });
         entGfx
           .circle(px, py, 4)
           .fill({ color: "#ffffff", alpha: 0.9 * vAlpha });
-        if (selectedIds.has(ent.id))
+        if (selectedIds.has(ent.id)) {
           entGfx
             .circle(px, py, 8)
             .stroke({ width: 3, color: "#00f0ff", alpha: 1 });
+          entGfx
+            .rect(px - w / 2, py - h / 2, w, h)
+            .stroke({ width: 2, color: 0x00f0ff, alpha: 1, dash: [4, 4] });
+        }
       } else if (ent.coordinates) {
         const px = (Number(ent.coordinates[0]) - originX) * gridX;
         const py = (Number(ent.coordinates[1]) - originY) * gridY;
@@ -656,7 +656,6 @@
       });
     });
 
-    // --- NEW: EVENT TARGETING LINKS ---
     const linkGfx = new PIXI.Graphics();
     geometryContainer.addChild(linkGfx);
 
@@ -666,7 +665,6 @@
         const ey = (Number(evt.trigger_bounds?.center?.y) - originY) * gridY;
         if (isNaN(ex) || isNaN(ey)) return;
 
-        // 1. Draw dashed lines to Cross-Entity Targets (State Toggles)
         if (evt.target_entity_ids && evt.target_entity_ids.length > 0) {
           evt.target_entity_ids.forEach((tid) => {
             const tCenter = getEntityCenter(tid, manifest);
@@ -688,7 +686,6 @@
           });
         }
 
-        // 2. Draw dashed lines to Teleport/Stairs Destination (If on the same map layer)
         if (
           evt.targetSpawnId &&
           (!evt.targetFloorId || evt.targetFloorId === activeMap.id)
@@ -890,7 +887,6 @@
     if (closePath && path.length > 2) gfx.closePath();
   }
 
-  // --- STRICT VECTOR AND CENTER SNAPPING MATH ---
   function getVectorSnapPoint(px, py, walls, snapDistance) {
     let closestDist = snapDistance * snapDistance;
     let snapPoint = null;
@@ -973,7 +969,7 @@
     const isFreeTool = ["light", "audio", "emitter", "prop"].includes(
       effectiveAction,
     );
-    const isCenterSnapTool = ["spawn", "event"].includes(effectiveAction);
+    const isCenterSnapTool = ["spawn"].includes(effectiveAction);
     const shouldSnap = isFreeTool ? e_shiftKey : !e_shiftKey;
 
     if (isCenterSnapTool && shouldSnap) {
@@ -1003,7 +999,6 @@
     return { exactX, exactY, snapX, snapY, gridX, gridY };
   }
 
-  // --- LOV/FOG MATH HELPERS ---
   function buildCollisionSegments(
     manifest,
     originX,
@@ -1236,7 +1231,6 @@
     shadowGfx.fill({ color: 0x000000, alpha: 0.85 });
   }
 
-  // --- DROP EVENT HANDLERS ---
   function handleDrop(e) {
     e.preventDefault();
 
@@ -1348,7 +1342,6 @@
       const isTempSelect = (e.ctrlKey || e.metaKey) && activeTool !== "select";
       const currentToolAction = isTempSelect ? "select" : activeTool;
 
-      // --- GRID ALIGNMENT INTERCEPT ---
       if (currentToolAction === "grid_align") {
         const rect = canvasContainer.getBoundingClientRect();
         const rawX = e.clientX - rect.left;
@@ -1824,44 +1817,53 @@
   onpointerup={handlePointerUp}
   onpointerleave={handlePointerUp}
   oncontextmenu={(e) => e.preventDefault()}
->
-  <!-- SVELTE UI OVERLAYS (Performance optimization: bypassing PIXI redraws) -->
-  {#if activeMap && isPixiReady}
-    {@const manifest = activeMap.manifest}
-    {@const gridX = Number(manifest.resolution?.pixels_per_grid) || 70}
-    {@const gridY = Number(manifest.resolution?.pixels_per_grid_y) || gridX}
-    {@const originX = Number(manifest.resolution?.map_origin?.[0]) || 0}
-    {@const originY = Number(manifest.resolution?.map_origin?.[1]) || 0}
+></div>
 
-    {@const exactX = Number(mapStore.mouseX || 0)}
-    {@const exactY = Number(mapStore.mouseY || 0)}
-    {@const macroCol = Math.floor(exactX)}
-    {@const macroRow = Math.floor(exactY)}
+<!-- SVELTE UI OVERLAYS -->
+{#if activeMap && isPixiReady}
+  {@const exactX = Number(mapStore.mouseX || 0)}
+  {@const exactY = Number(mapStore.mouseY || 0)}
+  {@const macroCol = Math.floor(exactX)}
+  {@const macroRow = Math.floor(exactY)}
+  {@const manifest = activeMap.manifest}
+  {@const gridX = Number(manifest.resolution?.pixels_per_grid) || 70}
+  {@const gridY = Number(manifest.resolution?.pixels_per_grid_y) || gridX}
+  {@const originX = Number(manifest.resolution?.map_origin?.[0]) || 0}
+  {@const originY = Number(manifest.resolution?.map_origin?.[1]) || 0}
 
-    <!-- Hover Reticle perfectly mapped to PIXI coordinate space -->
+  {#if showGridHUD}
     <div
       class="cell-reticle"
       style="
-      left: {(macroCol - originX) * gridX * scale + panX}px;
-      top: {(macroRow - originY) * gridY * scale + panY}px;
-      width: {gridX * scale}px;
-      height: {gridY * scale}px;
-    "
+        left: {(macroCol - originX) * gridX * scale + panX}px;
+        top: {(macroRow - originY) * gridY * scale + panY}px;
+        width: {gridX * scale}px;
+        height: {gridY * scale}px;
+      "
     >
       <span class="reticle-text">{exactX.toFixed(2)}, {exactY.toFixed(2)}</span>
     </div>
+  {/if}
 
-    <!-- Docked Status HUD -->
-    <div class="coordinate-hud">
+  <div class="coordinate-hud">
+    {#if showGridHUD}
       <div class="coord-label">
         X <span class="coord-val">{exactX.toFixed(2)}</span>
       </div>
       <div class="coord-label">
         Y <span class="coord-val">{exactY.toFixed(2)}</span>
       </div>
-    </div>
-  {/if}
-</div>
+      <div class="hud-divider"></div>
+    {/if}
+    <button
+      class="hud-toggle-btn"
+      onclick={() => (showGridHUD = !showGridHUD)}
+      title="Toggle Grid Coordinates"
+    >
+      {showGridHUD ? "👁️" : "🎯"}
+    </button>
+  </div>
+{/if}
 
 <style>
   .pixi-workspace {
@@ -1881,13 +1883,13 @@
     cursor: grabbing !important;
   }
 
-  /* Custom CAD drafting cursor: 1px white line with 1px black outline */
   .pixi-workspace.grid-align-mode {
     cursor:
       url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48bGluZSB4MT0iMTYiIHkxPSIwIiB4Mj0iMTYiIHkyPSIzMiIgc3Ryb2tlPSJyZ2JhKDAsMCwwLDAuNikiIHN0cm9rZS13aWR0aD0iMyIvPjxsaW5lIHgxPSIwIiB5MT0iMTYiIHgyPSIzMiIgeTI9IjE2IiBzdHJva2U9InJnYmEoMCwwLDAsMC42KSIgc3Ryb2tlLXdpZHRoPSIzIi8+PGxpbmUgeDE9IjE2IiB5MT0iMCIgeDI9IjE2IiB5Mj0iMzIiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLXdpZHRoPSIxIi8+PGxpbmUgeDE9IjAiIHkxPSIxNiIgeDI9IjMyIiB5Mj0iMTYiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLXdpZHRoPSIxIi8+PC9zdmc+")
         16 16,
       crosshair;
   }
+
   .cell-reticle {
     position: absolute;
     border: 2px solid rgba(56, 189, 248, 0.6);
@@ -1912,12 +1914,12 @@
     right: 24px;
     background: rgba(15, 23, 42, 0.9);
     border: 1px solid #334155;
-    padding: 8px 16px;
+    padding: 8px;
     border-radius: 8px;
     display: flex;
-    gap: 16px;
+    gap: 12px;
+    align-items: center;
     z-index: 20;
-    pointer-events: none;
   }
   .coord-label {
     font-size: 11px;
@@ -1931,5 +1933,26 @@
     color: #38bdf8;
     font-size: 14px;
     font-family: monospace;
+  }
+  .hud-divider {
+    width: 1px;
+    height: 16px;
+    background: #334155;
+  }
+  .hud-toggle-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    border-radius: 4px;
+  }
+  .hud-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
   }
 </style>

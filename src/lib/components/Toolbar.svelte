@@ -1651,9 +1651,14 @@
                   (e) => e.id === selectedEventId,
                 )
               : null}
+            {@const evtName = evt
+              ? evt.name || ""
+              : mapStore.defaultSettings.event.name || ""}
             {@const evtType = evt
               ? evt.eventType
               : mapStore.defaultSettings.event.eventType}
+            {@const evtWidth = evt ? evt.trigger_bounds?.width || 1 : 1}
+            {@const evtHeight = evt ? evt.trigger_bounds?.height || 1 : 1}
             {@const evtAction = evt
               ? evt.target_action
               : mapStore.defaultSettings.event.target_action}
@@ -1675,12 +1680,84 @@
               style="border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.02);"
             >
               <h3 style="color: #a855f7;">📝 EVENT CONFIG</h3>
+
+              <label
+                style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px;"
+              >
+                Event Name
+                <input
+                  type="text"
+                  placeholder="e.g., Hidden Spike Trap"
+                  style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px; width: 100%; box-sizing: border-box;"
+                  value={evtName}
+                  onchange={(e) => {
+                    if (evt)
+                      mapStore.updateItemProperty(
+                        evt.id,
+                        "name",
+                        e.target.value,
+                      );
+                    else
+                      mapStore.updateDefaultSetting(
+                        "event",
+                        "name",
+                        e.target.value,
+                      );
+                  }}
+                />
+              </label>
+
+              <div
+                style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;"
+              >
+                <label
+                  style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px;"
+                >
+                  Width (X)
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0.1"
+                    style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
+                    value={evtWidth}
+                    onchange={(e) => {
+                      if (evt)
+                        mapStore.updateItemProperty(
+                          evt.id,
+                          "trigger_bounds.width",
+                          Number(e.target.value),
+                        );
+                    }}
+                  />
+                </label>
+                <label
+                  style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px;"
+                >
+                  Height (Y)
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0.1"
+                    style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
+                    value={evtHeight}
+                    onchange={(e) => {
+                      if (evt)
+                        mapStore.updateItemProperty(
+                          evt.id,
+                          "trigger_bounds.height",
+                          Number(e.target.value),
+                        );
+                    }}
+                  />
+                </label>
+              </div>
+
               <label
                 style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px;"
               >
                 Trigger Type
                 <select
-                  style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
+                  style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px; width: 100%; box-sizing: border-box;"
                   value={evtType}
                   onchange={(e) => {
                     if (evt)

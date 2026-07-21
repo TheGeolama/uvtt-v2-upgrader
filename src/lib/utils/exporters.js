@@ -23,8 +23,8 @@ export function exportToFoundryVTT(manifest) {
         walls: [],
         lights: [],
         tokens: [],
-        tiles: [],     // Added for Props
-        drawings: [],  // Added for Events
+        tiles: [],     
+        drawings: [],  
         notes: [],
         flags: {
             uvtt: { version: 2 }
@@ -58,7 +58,7 @@ export function exportToFoundryVTT(manifest) {
     processGeometry(manifest.geometry?.walls, "wall", 20, 20);
     processGeometry(manifest.geometry?.portals, "door", 20, 20);
 
-    // Foundry Lights (Now respecting Universal Visibility)
+    // Foundry Lights 
     (manifest.entities?.lights || []).forEach(l => {
         const isHidden = l.properties?.visibility === 'gm_only' || l.properties?.visibility === 'hidden';
         scene.lights.push({
@@ -107,17 +107,18 @@ export function exportToFoundryVTT(manifest) {
 
     // Foundry Drawings (Events and Smart States)
     (manifest.entities?.events || []).forEach(evt => {
-        const radiusPx = (Number(evt.trigger_bounds?.radius) || 1) * gridSize;
+        const wPx = (Number(evt.trigger_bounds?.width) || 1) * gridSize;
+        const hPx = (Number(evt.trigger_bounds?.height) || 1) * gridSize;
         const cx = evt.trigger_bounds?.center?.x * gridSize;
         const cy = evt.trigger_bounds?.center?.y * gridSize;
 
         scene.drawings.push({
             _id: sanitizeId(evt.id),
             text: evt.name || "Trigger Zone",
-            shape: { type: "e", width: radiusPx * 2, height: radiusPx * 2 },
-            x: cx - radiusPx,
-            y: cy - radiusPx,
-            hidden: true, // Events are inherently invisible to players
+            shape: { type: "r", width: wPx, height: hPx }, // 'r' = Rectangle
+            x: cx - (wPx / 2),
+            y: cy - (hPx / 2),
+            hidden: true,
             flags: {
                 uvtt: {
                     type: "event",
@@ -149,12 +150,11 @@ export function exportToRoll20(manifest) {
         objects: []
     };
 
-    // Roll20 Dynamic Lighting Walls (Paths sent directly to the "walls" layer)
+    // Roll20 Dynamic Lighting Walls 
     const processRoll20Paths = (items, color, strokeWidth) => {
         (items || []).forEach(item => {
             if (!item.path || item.path.length < 2) return;
             
-            // Roll20 requires a strictly formatted stringified array: [["M",x,y],["L",x,y]]
             const pathArray = item.path.map((pt, index) => [
                 index === 0 ? "M" : "L",
                 toPx(pt.x),
@@ -171,12 +171,10 @@ export function exportToRoll20(manifest) {
         });
     };
 
-    // Standard walls render blue in Roll20 DL
     processRoll20Paths(manifest.geometry?.walls, "#0000ff", 3);
-    // Doors/Portals render orange to distinguish them easily for GMs
     processRoll20Paths(manifest.geometry?.portals, "#ff9900", 5);
 
-    // Roll20 Lights (Invisible tokens configured to emit light)
+    // Roll20 Lights 
     (manifest.entities?.lights || []).forEach(l => {
         roll20Data.objects.push({
             type: "graphic",
@@ -194,7 +192,7 @@ export function exportToRoll20(manifest) {
         });
     });
 
-    // Roll20 Spawns (Pushed to GM Layer so players don't see them)
+    // Roll20 Spawns 
     (manifest.entities?.landing_zones || []).forEach(lz => {
         roll20Data.objects.push({
             type: "graphic",
@@ -208,7 +206,7 @@ export function exportToRoll20(manifest) {
         });
     });
 
-    // Roll20 Props (Layer routing based on visibility override)
+    // Roll20 Props
     (manifest.entities?.props || []).forEach(prop => {
         const isGMOnly = prop.properties?.visibility === 'gm_only' || prop.properties?.visibility === 'hidden';
         const width = (Number(prop.scale) / 100) * gridSize;
@@ -226,10 +224,12 @@ export function exportToRoll20(manifest) {
         });
     });
 
-    // Roll20 Events (Pushed to GM Layer with API metadata injected into gmnotes)
+    // Roll20 Events (Sized as precise rectangular trigger zones)
     (manifest.entities?.events || []).forEach(evt => {
         const cx = toPx(evt.trigger_bounds?.center?.x || 0);
         const cy = toPx(evt.trigger_bounds?.center?.y || 0);
+        const wPx = (Number(evt.trigger_bounds?.width) || 1) * gridSize;
+        const hPx = (Number(evt.trigger_bounds?.height) || 1) * gridSize;
         
         roll20Data.objects.push({
             type: "graphic",
@@ -237,8 +237,8 @@ export function exportToRoll20(manifest) {
             name: evt.name || "Trigger",
             top: cy,
             left: cx,
-            width: 70, height: 70, // Standard marker size for Roll20
-            aura1_radius: Number(evt.trigger_bounds?.radius) || 1,
+            width: wPx, 
+            height: hPx,
             gmnotes: encodeURIComponent(JSON.stringify({
                 type: "uvtt_event",
                 eventType: evt.eventType,
@@ -451,9 +451,10 @@ export async function buildUVTT2Archive(catalog, audioBlobs = {}) {
                 id: ev.id,
                 type: isTeleport ? "teleport" : "trap",
                 trigger_bounds: {
-                    shape: "circle",
+                    shape: "rectangle",
                     center: { x: ev.trigger_bounds?.center?.x || 0.0, y: ev.trigger_bounds?.center?.y || 0.0 },
-                    radius: ev.trigger_bounds?.radius || 1.0
+                    width: ev.trigger_bounds?.width || 1.0,
+                    height: ev.trigger_bounds?.height || 1.0
                 },
                 conditions: {
                     requires_interaction: ev.activation === "interaction",
