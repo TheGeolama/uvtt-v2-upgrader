@@ -1639,7 +1639,37 @@
               />
               <span>Set as Default Landing Zone</span>
             </label>
+            <!-- EVENT SETTINGS -->
           {:else if displayCategory === "event"}
+            <!-- Safely lookup the event directly from the store to avoid missing script variables -->
+            {@const selectedEventId =
+              mapStore.selectedItemIds.length === 1
+                ? mapStore.selectedItemIds[0]
+                : null}
+            {@const evt = selectedEventId
+              ? (mapStore.activeMap?.manifest?.entities?.events || []).find(
+                  (e) => e.id === selectedEventId,
+                )
+              : null}
+            {@const evtType = evt
+              ? evt.eventType
+              : mapStore.defaultSettings.event.eventType}
+            {@const evtAction = evt
+              ? evt.target_action
+              : mapStore.defaultSettings.event.target_action}
+            {@const evtTargets = evt
+              ? evt.target_entity_ids || []
+              : mapStore.defaultSettings.event.target_entity_ids || []}
+            {@const evtFloor = evt
+              ? evt.targetFloorId
+              : mapStore.defaultSettings.event.targetFloorId}
+            {@const evtSpawn = evt
+              ? evt.targetSpawnId
+              : mapStore.defaultSettings.event.targetSpawnId}
+            {@const evtAuto = evt
+              ? evt.autoCreateMatch
+              : mapStore.defaultSettings.event.autoCreateMatch}
+
             <div
               class="panel-section"
               style="border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.02);"
@@ -1651,13 +1681,11 @@
                 Trigger Type
                 <select
                   style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
-                  value={selectedItem
-                    ? selectedItem.eventType
-                    : mapStore.defaultSettings.event.eventType}
+                  value={evtType}
                   onchange={(e) => {
-                    if (selectedItem)
+                    if (evt)
                       mapStore.updateItemProperty(
-                        selectedItem.id,
+                        evt.id,
                         "eventType",
                         e.target.value,
                       );
@@ -1678,20 +1706,18 @@
                 </select>
               </label>
 
-              {#if (selectedItem ? selectedItem.eventType : mapStore.defaultSettings.event.eventType) === "State Toggle"}
+              {#if evtType === "State Toggle"}
                 <label
                   style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; margin-top: 8px;"
                 >
                   Target Action
                   <select
                     style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
-                    value={selectedItem
-                      ? selectedItem.target_action
-                      : mapStore.defaultSettings.event.target_action}
+                    value={evtAction}
                     onchange={(e) => {
-                      if (selectedItem)
+                      if (evt)
                         mapStore.updateItemProperty(
-                          selectedItem.id,
+                          evt.id,
                           "target_action",
                           e.target.value,
                         );
@@ -1722,14 +1748,15 @@
                   Target Entities (Hold Ctrl/Cmd to Multi-Select)
                   <select
                     multiple
+                    value={evtTargets}
                     style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px; height: 110px;"
                     onchange={(e) => {
                       const selectedOptions = Array.from(
                         e.target.selectedOptions,
                       ).map((opt) => opt.value);
-                      if (selectedItem)
+                      if (evt)
                         mapStore.updateItemProperty(
-                          selectedItem.id,
+                          evt.id,
                           "target_entity_ids",
                           selectedOptions,
                         );
@@ -1743,59 +1770,45 @@
                   >
                     <optgroup label="Props / Tokens">
                       {#each mapStore.activeMap?.manifest?.entities?.props || [] as prop}
-                        <option
-                          value={prop.id}
-                          selected={(selectedItem
-                            ? selectedItem.target_entity_ids
-                            : mapStore.defaultSettings.event.target_entity_ids
-                          )?.includes(prop.id)}
-                          >{prop.name || "Unnamed Prop"}</option
-                        >
+                        <option value={prop.id}>
+                          {prop.name || "Unnamed Prop"} @ Grid {Math.round(
+                            prop.position?.x || 0,
+                          )},{Math.round(prop.position?.y || 0)}
+                        </option>
                       {/each}
                     </optgroup>
                     <optgroup label="Portals (Doors/Windows)">
                       {#each mapStore.activeMap?.manifest?.geometry?.portals || [] as portal}
-                        <option
-                          value={portal.id}
-                          selected={(selectedItem
-                            ? selectedItem.target_entity_ids
-                            : mapStore.defaultSettings.event.target_entity_ids
-                          )?.includes(portal.id)}
-                          >{portal.properties?.type || "Portal"} ({portal.id.substring(
-                            0,
-                            6,
-                          )})</option
-                        >
+                        <option value={portal.id}>
+                          {portal.properties?.type || "Portal"} @ Grid {Math.round(
+                            portal.path?.[0]?.x || 0,
+                          )},{Math.round(portal.path?.[0]?.y || 0)}
+                        </option>
                       {/each}
                     </optgroup>
                     <optgroup label="Audio Zones">
                       {#each mapStore.activeMap?.manifest?.entities?.audio?.zones || [] as audio}
-                        <option
-                          value={audio.id}
-                          selected={(selectedItem
-                            ? selectedItem.target_entity_ids
-                            : mapStore.defaultSettings.event.target_entity_ids
-                          )?.includes(audio.id)}
-                          >{audio.track || "Unnamed Audio"}</option
-                        >
+                        <option value={audio.id}>
+                          {audio.track || "Unnamed Audio"} @ Grid {Math.round(
+                            audio.center?.x || 0,
+                          )},{Math.round(audio.center?.y || 0)}
+                        </option>
                       {/each}
                     </optgroup>
                   </select>
                 </label>
-              {:else if ["Teleport", "Stairs/Ladder"].includes(selectedItem ? selectedItem.eventType : mapStore.defaultSettings.event.eventType)}
+              {:else if ["Teleport", "Stairs/Ladder"].includes(evtType)}
                 <label
                   style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; margin-top: 8px;"
                 >
                   Target Floor
                   <select
                     style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
-                    value={selectedItem
-                      ? selectedItem.targetFloorId
-                      : mapStore.defaultSettings.event.targetFloorId}
+                    value={evtFloor}
                     onchange={(e) => {
-                      if (selectedItem)
+                      if (evt)
                         mapStore.updateItemProperty(
-                          selectedItem.id,
+                          evt.id,
                           "targetFloorId",
                           e.target.value,
                         );
@@ -1820,13 +1833,11 @@
                   Destination Spawn Point
                   <select
                     style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
-                    value={selectedItem
-                      ? selectedItem.targetSpawnId
-                      : mapStore.defaultSettings.event.targetSpawnId}
+                    value={evtSpawn}
                     onchange={(e) => {
-                      if (selectedItem)
+                      if (evt)
                         mapStore.updateItemProperty(
-                          selectedItem.id,
+                          evt.id,
                           "targetSpawnId",
                           e.target.value,
                         );
@@ -1840,7 +1851,7 @@
                   >
                     <option value="">-- Select Destination --</option>
                     {#each mapStore.catalog as level}
-                      {#if !selectedItem?.targetFloorId || selectedItem.targetFloorId === level.id || (!selectedItem && mapStore.defaultSettings.event.targetFloorId === level.id)}
+                      {#if !evtFloor || evtFloor === level.id}
                         <optgroup label={level.filename}>
                           {#each level.manifest.entities?.landing_zones || [] as spawn}
                             <option value={spawn.id}
@@ -1856,13 +1867,11 @@
                 <label class="checkbox-row" style="margin-top: 8px;">
                   <input
                     type="checkbox"
-                    checked={selectedItem
-                      ? selectedItem.autoCreateMatch
-                      : mapStore.defaultSettings.event.autoCreateMatch}
+                    checked={evtAuto}
                     onchange={(e) => {
-                      if (selectedItem)
+                      if (evt)
                         mapStore.updateItemProperty(
-                          selectedItem.id,
+                          evt.id,
                           "autoCreateMatch",
                           e.target.checked,
                         );

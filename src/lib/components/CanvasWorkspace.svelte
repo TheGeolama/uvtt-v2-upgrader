@@ -1824,7 +1824,44 @@
   onpointerup={handlePointerUp}
   onpointerleave={handlePointerUp}
   oncontextmenu={(e) => e.preventDefault()}
-></div>
+>
+  <!-- SVELTE UI OVERLAYS (Performance optimization: bypassing PIXI redraws) -->
+  {#if activeMap && isPixiReady}
+    {@const manifest = activeMap.manifest}
+    {@const gridX = Number(manifest.resolution?.pixels_per_grid) || 70}
+    {@const gridY = Number(manifest.resolution?.pixels_per_grid_y) || gridX}
+    {@const originX = Number(manifest.resolution?.map_origin?.[0]) || 0}
+    {@const originY = Number(manifest.resolution?.map_origin?.[1]) || 0}
+
+    {@const exactX = Number(mapStore.mouseX || 0)}
+    {@const exactY = Number(mapStore.mouseY || 0)}
+    {@const macroCol = Math.floor(exactX)}
+    {@const macroRow = Math.floor(exactY)}
+
+    <!-- Hover Reticle perfectly mapped to PIXI coordinate space -->
+    <div
+      class="cell-reticle"
+      style="
+      left: {(macroCol - originX) * gridX * scale + panX}px;
+      top: {(macroRow - originY) * gridY * scale + panY}px;
+      width: {gridX * scale}px;
+      height: {gridY * scale}px;
+    "
+    >
+      <span class="reticle-text">{exactX.toFixed(2)}, {exactY.toFixed(2)}</span>
+    </div>
+
+    <!-- Docked Status HUD -->
+    <div class="coordinate-hud">
+      <div class="coord-label">
+        X <span class="coord-val">{exactX.toFixed(2)}</span>
+      </div>
+      <div class="coord-label">
+        Y <span class="coord-val">{exactY.toFixed(2)}</span>
+      </div>
+    </div>
+  {/if}
+</div>
 
 <style>
   .pixi-workspace {
@@ -1850,5 +1887,49 @@
       url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48bGluZSB4MT0iMTYiIHkxPSIwIiB4Mj0iMTYiIHkyPSIzMiIgc3Ryb2tlPSJyZ2JhKDAsMCwwLDAuNikiIHN0cm9rZS13aWR0aD0iMyIvPjxsaW5lIHgxPSIwIiB5MT0iMTYiIHgyPSIzMiIgeTI9IjE2IiBzdHJva2U9InJnYmEoMCwwLDAsMC42KSIgc3Ryb2tlLXdpZHRoPSIzIi8+PGxpbmUgeDE9IjE2IiB5MT0iMCIgeDI9IjE2IiB5Mj0iMzIiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLXdpZHRoPSIxIi8+PGxpbmUgeDE9IjAiIHkxPSIxNiIgeDI9IjMyIiB5Mj0iMTYiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLXdpZHRoPSIxIi8+PC9zdmc+")
         16 16,
       crosshair;
+  }
+  .cell-reticle {
+    position: absolute;
+    border: 2px solid rgba(56, 189, 248, 0.6);
+    background: rgba(56, 189, 248, 0.1);
+    pointer-events: none;
+    z-index: 20;
+    display: flex;
+    box-sizing: border-box;
+  }
+  .reticle-text {
+    background: rgba(15, 23, 42, 0.9);
+    color: #38bdf8;
+    font-size: 10px;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-bottom-right-radius: 4px;
+    font-family: monospace;
+  }
+  .coordinate-hud {
+    position: absolute;
+    bottom: 24px;
+    right: 24px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid #334155;
+    padding: 8px 16px;
+    border-radius: 8px;
+    display: flex;
+    gap: 16px;
+    z-index: 20;
+    pointer-events: none;
+  }
+  .coord-label {
+    font-size: 11px;
+    color: #94a3b8;
+    font-weight: 600;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .coord-val {
+    color: #38bdf8;
+    font-size: 14px;
+    font-family: monospace;
   }
 </style>
