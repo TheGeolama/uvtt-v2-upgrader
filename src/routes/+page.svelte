@@ -3,7 +3,6 @@
   import Uploader from "$components/Uploader.svelte";
   import CanvasWorkspace from "$components/CanvasWorkspace.svelte";
   import Toolbar from "$components/Toolbar.svelte";
-  import HistoryPanel from "$components/HistoryPanel.svelte";
   import ToastManager from "$components/ToastManager.svelte";
   import LoadingOverlay from "$components/LoadingOverlay.svelte";
   import { mapStore } from "$stores/mapStore.svelte.js";
@@ -36,7 +35,6 @@
     <div class="workspace-wrapper">
       <CanvasWorkspace />
       <Toolbar />
-      <HistoryPanel />
     </div>
   {/if}
 
