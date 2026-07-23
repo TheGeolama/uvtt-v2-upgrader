@@ -185,7 +185,7 @@ export class SpatialAudioEngine {
 
       // Apply Custom Tiered Volume Penalty
       if (occlusionCount === 1) {
-        targetVolume *= 0.15; // 15% volume remaining
+        targetVolume *= 0.10; // 10% volume remaining
       } else if (occlusionCount === 2) {
         targetVolume *= 0.05; // 5% volume remaining
       } else if (occlusionCount >= 3) {
