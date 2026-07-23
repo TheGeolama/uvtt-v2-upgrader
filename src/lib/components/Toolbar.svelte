@@ -585,7 +585,7 @@
   }
 
   .tool-selector {
-    width: 140px;
+    width: 160px; /* Increased from 140px to fit 'Player View' */
     display: flex;
     flex-direction: column;
     gap: 15px;
