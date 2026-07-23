@@ -84,7 +84,9 @@ export class SpatialAudioEngine {
     return t > 0 && t < 1 && u > 0 && u < 1;
   }
 
-  _isOccluded(lx, ly, ex, ey, walls) {
+  _isOccluded(lx, ly, ex, ey, geometry) {
+    // 1. Check Walls
+    const walls = geometry?.walls || [];
     for (const wall of walls) {
       if (!wall.path || wall.path.length < 2) continue;
       
@@ -99,13 +101,32 @@ export class SpatialAudioEngine {
         }
       }
     }
+
+    // 2. Check Portals (Doors & Windows)
+    const portals = geometry?.portals || [];
+    for (const portal of portals) {
+      if (!portal.path || portal.path.length < 2) continue;
+      
+      // Only block sound if the door/window is actually closed or locked
+      const state = portal.properties?.state || "closed";
+      if (state !== "closed" && state !== "locked") continue;
+
+      for (let i = 0; i < portal.path.length - 1; i++) {
+        const p1 = portal.path[i];
+        const p2 = portal.path[i+1];
+        if (this._linesIntersect(lx, ly, ex, ey, p1.x, p1.y, p2.x, p2.y)) {
+          return true; // Raycast hit a closed door/window
+        }
+      }
+    }
+
     return false;
   }
 
   /**
    * The core audio loop. Call this on every render tick or drag event.
    */
-  syncZones(audioZones, audioBlobs, listenerX, listenerY, walls, onDecodeComplete) {
+  syncZones(audioZones, audioBlobs, listenerX, listenerY, geometry, onDecodeComplete) {
     if (!this.isInitialized || !this.context) return;
 
     const currentZoneIds = new Set();
@@ -147,22 +168,27 @@ export class SpatialAudioEngine {
         targetVolume = baseVolume * fadeRatio;
       }
 
-      // If out of range, stop the Web Audio node completely to save CPU
-      if (targetVolume <= 0) {
-        if (this.activeNodes.has(zone.id)) {
-          this.stopZone(zone.id);
-        }
-        return;
-      }
-
       // 2. Panning Math (Left/Right ear based on X-axis difference)
       // Clamped between -1 (Hard Left) and 1 (Hard Right)
       let panValue = dx / fadeRadius; 
       panValue = Math.max(-1, Math.min(1, panValue));
 
-      // 3. Occlusion Math (Acoustic Muffling via Lowpass Filter)
-      const isMuffled = (zone.muffledByWalls ?? true) && this._isOccluded(listenerX, listenerY, ex, ey, walls);
+      // 3. Occlusion Math (Acoustic Muffling via Lowpass Filter AND Volume Drop)
+      const isMuffled = (zone.muffledByWalls ?? true) && this._isOccluded(listenerX, listenerY, ex, ey, geometry);
       const targetFrequency = isMuffled ? 600 : 22050; // 600Hz simulates hearing through a heavy door
+
+      // Apply a heavy volume penalty for shooting straight through a wall or closed window
+      if (isMuffled) {
+        targetVolume *= 0.25; // 75% volume reduction
+      }
+
+      // If out of range (or muffled to absolute zero), stop the Web Audio node completely to save CPU
+      if (targetVolume <= 0.01) {
+        if (this.activeNodes.has(zone.id)) {
+          this.stopZone(zone.id);
+        }
+        return;
+      }
 
       let nodeState = this.activeNodes.get(zone.id);
       

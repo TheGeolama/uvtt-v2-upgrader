@@ -132,7 +132,13 @@
 
     const manifest = activeMap.manifest;
     const audioZones = manifest.entities?.audio?.zones || [];
-    const walls = manifest.geometry?.walls || [];
+
+    // Grab the FULL geometry object (Walls, Portals, Roofs)
+    const geometry = manifest.geometry || {
+      walls: [],
+      portals: [],
+      overhead: [],
+    };
     const audioBlobs = mapStore.audioBlobs || {};
 
     let listenerX = 0;
@@ -156,7 +162,18 @@
       listenerY = (ch / 2 - py) / s / gridY + originY;
     }
 
-    audioEngine.syncZones(audioZones, audioBlobs, listenerX, listenerY, walls);
+    // Pass the full geometry to the audio engine so it can calculate doors/windows
+    audioEngine.syncZones(
+      audioZones,
+      audioBlobs,
+      listenerX,
+      listenerY,
+      geometry,
+      () => {
+        // This callback fires the millisecond a new track finishes decoding
+        mapStore.updateTrigger++;
+      },
+    );
   });
 
   function handleResize() {
@@ -664,6 +681,8 @@
 
     if (isDraggingVisionToken) {
       mapStore.updateVisionToken(coords.exactX, coords.exactY);
+      // Force audio nodes to update continuously while dragging!
+      mapStore.updateTrigger++;
       return;
     }
 
