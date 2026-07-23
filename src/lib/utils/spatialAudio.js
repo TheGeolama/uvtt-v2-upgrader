@@ -7,13 +7,14 @@ export class SpatialAudioEngine {
     this.isInitialized = false;
   }
 
-  async init() {
+  init() {
     if (this.isInitialized) return;
     
     // Browsers strictly require the Audio Context to be created after a user interaction
     const AudioContext = window.AudioContext || window.webkitAudioContext;
-    this.context = new AudioContext();
+    if (!AudioContext) return;
     
+    this.context = new AudioContext();
     this.masterGain = this.context.createGain();
     this.masterGain.connect(this.context.destination);
     this.masterGain.gain.value = 1.0;
@@ -27,17 +28,50 @@ export class SpatialAudioEngine {
     }
   }
 
-  async loadTrack(trackName, blob) {
+  async loadTrack(trackName, rawData, onComplete) {
     if (!this.context) return;
-    if (this.buffers.has(trackName)) return; // Already loaded
+    if (this.buffers.has(trackName)) return; 
+
+    // Set to "loading" to prevent duplicate asynchronous decode calls
+    this.buffers.set(trackName, "loading");
 
     try {
-      const arrayBuffer = await blob.arrayBuffer();
+      let arrayBuffer;
+      
+      // Intelligently parse whatever data format Wails or the Browser provides
+      if (rawData instanceof Blob) {
+        arrayBuffer = await rawData.arrayBuffer();
+      } else if (rawData instanceof ArrayBuffer) {
+        arrayBuffer = rawData;
+      } else if (rawData instanceof Uint8Array) {
+        arrayBuffer = rawData.buffer;
+      } else if (typeof rawData === "string") {
+        // Strip data URI headers if Wails sent Base64
+        let base64 = rawData;
+        if (rawData.startsWith("data:")) {
+           base64 = rawData.split(',')[1];
+        }
+        const binaryString = atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        arrayBuffer = bytes.buffer;
+      } else {
+         throw new Error("Unknown audio data format provided by store.");
+      }
+
       const audioBuffer = await this.context.decodeAudioData(arrayBuffer);
       this.buffers.set(trackName, audioBuffer);
       console.log(`[AudioEngine] Successfully decoded track: ${trackName}`);
+      
+      // Kick Svelte so it immediately re-evaluates the audio nodes!
+      if (onComplete) onComplete();
+
     } catch (err) {
       console.error(`[AudioEngine] Failed to decode track: ${trackName}`, err);
+      this.buffers.delete(trackName); // Delete the "loading" lock so it can be retried
     }
   }
 
@@ -71,7 +105,7 @@ export class SpatialAudioEngine {
   /**
    * The core audio loop. Call this on every render tick or drag event.
    */
-  syncZones(audioZones, audioBlobs, listenerX, listenerY, walls) {
+  syncZones(audioZones, audioBlobs, listenerX, listenerY, walls, onDecodeComplete) {
     if (!this.isInitialized || !this.context) return;
 
     const currentZoneIds = new Set();
@@ -80,14 +114,16 @@ export class SpatialAudioEngine {
       if (!zone.track) return;
       currentZoneIds.add(zone.id);
 
-      // JIT Loading: Ensure the track is loaded/decoded before we try to play it
-      if (!this.buffers.has(zone.track) && audioBlobs[zone.track]) {
-        this.loadTrack(zone.track, audioBlobs[zone.track]);
-        return; // Skip this specific zone on this frame while it decodes in the background
+      const bufferStatus = this.buffers.get(zone.track);
+
+      // JIT Loading: Trigger the decode and exit. It will call onDecodeComplete when finished.
+      if (!bufferStatus && audioBlobs[zone.track]) {
+        this.loadTrack(zone.track, audioBlobs[zone.track], onDecodeComplete);
+        return; 
       }
 
-      const buffer = this.buffers.get(zone.track);
-      if (!buffer) return; // Not decoded yet
+      if (bufferStatus === "loading") return; // Still decoding
+      if (!bufferStatus) return; // Decoding failed
 
       const ex = Number(zone.center?.x) || 0;
       const ey = Number(zone.center?.y) || 0;
@@ -133,7 +169,7 @@ export class SpatialAudioEngine {
       if (!nodeState) {
         // BUILD THE ROUTING GRAPH: Source -> Filter -> Panner -> Volume Gain -> Master Audio Out
         const source = this.context.createBufferSource();
-        source.buffer = buffer;
+        source.buffer = bufferStatus;
         source.loop = true;
 
         const filter = this.context.createBiquadFilter();
@@ -157,7 +193,6 @@ export class SpatialAudioEngine {
         this.activeNodes.set(zone.id, nodeState);
       } else {
         // RAMPING: We use setTargetAtTime so the audio shifts smoothly over 100ms
-        // If we hard-set the values, moving the mouse quickly will cause loud static "clicks" in the speakers
         const currentTime = this.context.currentTime;
         nodeState.gain.gain.setTargetAtTime(targetVolume, currentTime, 0.1);
         nodeState.panner.pan.setTargetAtTime(panValue, currentTime, 0.1);
@@ -182,9 +217,7 @@ export class SpatialAudioEngine {
         nodeState.filter.disconnect();
         nodeState.panner.disconnect();
         nodeState.gain.disconnect();
-      } catch (e) {
-        // Safely catch if nodes were already disconnected by the browser garbage collector
-      }
+      } catch (e) {}
       this.activeNodes.delete(zoneId);
     }
   }
