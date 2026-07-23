@@ -4,6 +4,66 @@
   let isDesktopPro = $derived(
     typeof window !== "undefined" && !!window?.go?.main,
   );
+
+  // --- GENRE FILTERING STATE ---
+  let selectedGenre = $state("All");
+
+  // Dynamically extract unique top-level folders (Genres) from the loaded assets
+  let availableGenres = $derived.by(() => {
+    const genres = new Set();
+    const extractGenre = (item) => {
+      // Fallback to name if path isn't explicitly provided by the Go struct
+      const pathString = item.path || item.name || "";
+      const cleanPath = pathString.replace(/^[/\\]/, "");
+      const parts = cleanPath.split(/[/\\]/);
+
+      // If the file is inside a subfolder, treat that top-level folder as the Genre
+      if (parts.length > 1) {
+        genres.add(parts[0]);
+      }
+    };
+
+    (mapStore.globalAssets?.audio || []).forEach(extractGenre);
+    (mapStore.globalAssets?.images || []).forEach(extractGenre);
+
+    return Array.from(genres).sort();
+  });
+
+  // Reset the dropdown if the user mounts a new folder that doesn't have the currently selected genre
+  $effect(() => {
+    if (
+      selectedGenre !== "All" &&
+      availableGenres.length > 0 &&
+      !availableGenres.includes(selectedGenre)
+    ) {
+      selectedGenre = "All";
+    }
+  });
+
+  // --- FILTERED ASSET ARRAYS ---
+  let filteredAudio = $derived(
+    (mapStore.globalAssets?.audio || []).filter((a) => {
+      if (selectedGenre === "All") return true;
+      const pathString = a.path || a.name || "";
+      const cleanPath = pathString.replace(/^[/\\]/, "");
+      return (
+        cleanPath.startsWith(selectedGenre + "/") ||
+        cleanPath.startsWith(selectedGenre + "\\")
+      );
+    }),
+  );
+
+  let filteredImages = $derived(
+    (mapStore.globalAssets?.images || []).filter((img) => {
+      if (selectedGenre === "All") return true;
+      const pathString = img.path || img.name || "";
+      const cleanPath = pathString.replace(/^[/\\]/, "");
+      return (
+        cleanPath.startsWith(selectedGenre + "/") ||
+        cleanPath.startsWith(selectedGenre + "\\")
+      );
+    }),
+  );
 </script>
 
 <div class="panel-section">
@@ -21,33 +81,51 @@
       props, and audio tracks into the engine without uploading.
     </p>
 
-    {#if mapStore.globalAssets.audio.length > 0}
+    {#if availableGenres.length > 0}
+      <label class="genre-filter">
+        <span>Filter by Genre:</span>
+        <select bind:value={selectedGenre}>
+          <option value="All">All Genres</option>
+          {#each availableGenres as genre}
+            <option value={genre}>{genre}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
+
+    {#if filteredAudio.length > 0}
       <div style="margin-top: 15px;">
         <span style="font-size: 10px; font-weight: bold; color: #00f0ff;"
-          >AUDIO LOADED ({mapStore.globalAssets.audio.length})</span
+          >AUDIO LOADED ({filteredAudio.length})</span
         >
         <ul
           style="font-size: 11px; color: #e2e8f0; padding-left: 15px; margin-top: 4px; max-height: 100px; overflow-y: auto;"
         >
-          {#each mapStore.globalAssets.audio as aud}
-            <li>{aud.name}</li>
+          {#each filteredAudio as aud}
+            <li title={aud.name || aud.path}>
+              {(aud.name || aud.path || "Audio Track").split(/[/\\]/).pop()}
+            </li>
           {/each}
         </ul>
       </div>
     {/if}
 
-    {#if mapStore.globalAssets.images.length > 0}
+    {#if filteredImages.length > 0}
       <div style="margin-top: 15px;">
         <span style="font-size: 10px; font-weight: bold; color: #00f0ff;"
-          >PROPS & TOKENS ({mapStore.globalAssets.images.length})</span
+          >PROPS & TOKENS ({filteredImages.length})</span
         >
         <div
           style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; max-height: 150px; overflow-y: auto; padding-right: 4px;"
         >
-          {#each mapStore.globalAssets.images as img}
+          {#each filteredImages as img}
+            {@const filename = (img.name || img.path || "Prop")
+              .split(/[/\\]/)
+              .pop()}
             <img
               src={img.data}
-              alt={img.name}
+              alt={filename}
+              title={img.name || img.path}
               draggable="true"
               ondragstart={(e) => {
                 e.dataTransfer.setData(
@@ -55,7 +133,7 @@
                   JSON.stringify({
                     type: "asset_prop",
                     image: img.data,
-                    name: img.name,
+                    name: filename,
                   }),
                 );
                 e.dataTransfer.effectAllowed = "copy";
@@ -136,5 +214,29 @@
     background: #a855f722;
     border-color: #a855f7;
     color: #d8b4fe;
+  }
+
+  /* Genre Filter Styles */
+  .genre-filter {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 12px;
+    font-size: 11px;
+    color: #cbd5e1;
+    font-weight: 600;
+  }
+  .genre-filter select {
+    background: #0f172a;
+    border: 1px solid #334155;
+    color: #e2e8f0;
+    padding: 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    outline: none;
+  }
+  .genre-filter select:focus {
+    border-color: #00f0ff;
   }
 </style>
