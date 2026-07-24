@@ -1075,6 +1075,34 @@
       isSpacePressed = true;
       return;
     }
+
+    // --- NEW: ARROW KEY NUDGING ---
+    if (
+      ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key) &&
+      mapStore.selectedItemIds.length > 0
+    ) {
+      e.preventDefault();
+      const manifest = activeMap?.manifest;
+      if (!manifest) return;
+
+      const gridX = Number(manifest.resolution?.pixels_per_grid) || 70;
+      const gridY = Number(manifest.resolution?.pixels_per_grid_y) || gridX;
+
+      // Move exactly 1 map pixel (10 pixels if Shift is held)
+      const multiplier = e.shiftKey ? 10 : 1;
+      let dx = 0;
+      let dy = 0;
+
+      if (e.key === "ArrowUp") dy = -(1 / gridY) * multiplier;
+      if (e.key === "ArrowDown") dy = (1 / gridY) * multiplier;
+      if (e.key === "ArrowLeft") dx = -(1 / gridX) * multiplier;
+      if (e.key === "ArrowRight") dx = (1 / gridX) * multiplier;
+
+      mapStore.translateSelection(dx, dy);
+      return;
+    }
+    // --- END NEW ---
+
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
       e.preventDefault();
       e.shiftKey ? mapStore.redo() : mapStore.undo();
