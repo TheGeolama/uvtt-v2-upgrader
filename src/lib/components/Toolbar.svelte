@@ -81,6 +81,7 @@
       })
       .filter(Boolean),
   );
+
   let displayCategory = $derived(
     selectedItems.length > 0 ? selectedItems[0].category : activeTool,
   );
@@ -415,6 +416,24 @@
 
           {#if ["wall", "portal", "roof"].includes(displayCategory)}
             <GeometryPanel />
+            <div
+              class="panel-section"
+              style="border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.02); margin-top: 12px; padding: 8px; border: 1px solid rgba(168,85,247,0.2); border-radius: 6px;"
+            >
+              <div
+                style="font-size: 10px; font-weight: bold; color: #a855f7; margin-bottom: 4px;"
+              >
+                🛠️ UTILITIES
+              </div>
+              <button
+                class="action-btn"
+                style="background: rgba(168, 85, 247, 0.1); border-color: rgba(168, 85, 247, 0.4); color: #c084fc; justify-content: center;"
+                onclick={() => mapStore.healGeometry()}
+                title="Auto-merge all nearby endpoints to prevent light leaks"
+              >
+                🧲 Snap All Vertices
+              </button>
+            </div>
           {:else if displayCategory === "event"}
             <EventPanel />
           {:else}
