@@ -111,7 +111,7 @@
         📁 Mount Local Folder
       </button>
 
-      {#if mapStore.mountedAssetDirectory}
+      {#if mapStore.globalAssets?.images?.length > 0 || mapStore.globalAssets?.audio?.length > 0}
         <button
           class="action-btn"
           style="flex: 0.2; justify-content: center;"
