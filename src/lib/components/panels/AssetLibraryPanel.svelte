@@ -156,15 +156,20 @@
               title={img.name || img.path}
               draggable="true"
               ondragstart={(e) => {
-                e.dataTransfer.setData(
-                  "application/json",
-                  JSON.stringify({
-                    type: "asset_prop",
-                    image: img.data,
-                    name: filename,
-                  }),
-                );
+                // 1. Bypass HTML5 payload limits by storing in window memory
+                window.__uvttDraggedAsset = {
+                  type: "asset_prop",
+                  image: img.data,
+                  name: filename,
+                };
+
+                // 2. We still must set some data to satisfy the HTML5 Drag-and-Drop API rules
+                e.dataTransfer.setData("text/plain", "uvtt_internal_asset");
                 e.dataTransfer.effectAllowed = "copy";
+              }}
+              ondragend={() => {
+                // Clean up memory when the drag finishes (or drops)
+                window.__uvttDraggedAsset = null;
               }}
               style="width: 48px; height: 48px; object-fit: cover; border: 1px solid #334155; border-radius: 4px; cursor: grab;"
             />

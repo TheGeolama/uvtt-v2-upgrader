@@ -437,7 +437,20 @@
   function handleDrop(e) {
     e.preventDefault();
 
-    // 1. Check for internal JSON payload first!
+    // 1. Bypass HTML5 payload limits - Check internal window memory first
+    if (
+      window.__uvttDraggedAsset &&
+      window.__uvttDraggedAsset.type === "asset_prop"
+    ) {
+      const data = window.__uvttDraggedAsset;
+      const coords = getGridCoordinates(e.clientX, e.clientY, true, "select");
+      mapStore.addProp(coords.exactX, coords.exactY, data.image, data.name);
+      if (activeTool !== "select") mapStore.setTool("select");
+      window.__uvttDraggedAsset = null; // Clean up memory
+      return; // Exit early so it doesn't trigger the file drop logic!
+    }
+
+    // 2. Legacy fallback just in case
     const dataStr = e.dataTransfer.getData("application/json");
     if (dataStr) {
       try {
@@ -451,12 +464,12 @@
           );
           mapStore.addProp(coords.exactX, coords.exactY, data.image, data.name);
           if (activeTool !== "select") mapStore.setTool("select");
-          return; // Exit early to prevent the file drop logic from firing
+          return;
         }
       } catch (err) {}
     }
 
-    // 2. If it's not an internal prop drag, handle it as an external file drop
+    // 3. Handle external OS file drops
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
       const ext = file.name.split(".").pop().toLowerCase();
