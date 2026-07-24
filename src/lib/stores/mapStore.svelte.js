@@ -1313,6 +1313,17 @@ class MapStore {
         }
     }
 
+    async refreshAssetLibrary() {
+        if (typeof window !== 'undefined' && window.go?.main?.App?.LoadSavedAssetDirectory) {
+            try {
+                const payload = await window.go.main.App.LoadSavedAssetDirectory();
+                this.processAssetPayload(payload);
+            } catch (err) {
+                console.error("Failed to refresh asset directory:", err);
+            }
+        }
+    }
+
     processAssetPayload(payload) {
         if (!payload || !payload.assets || payload.assets.length === 0) return;
         
