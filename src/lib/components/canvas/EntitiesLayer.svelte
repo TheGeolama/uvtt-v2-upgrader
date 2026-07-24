@@ -5,6 +5,9 @@
 
   let { parentContainer, panX, panY, scale } = $props();
   let entitiesContainer = new PIXI.Container();
+  // Ensure PixiJS evaluates mathematical z-index rather than drawing order
+  entitiesContainer.sortableChildren = true;
+
   let isReady = $state(false);
 
   const textureCache = new Map();
@@ -117,7 +120,10 @@
     const originY = Number(res.map_origin[1]) || 0;
 
     const selectedIds = new Set(mapStore.selectedItemIds);
+
+    // Abstract system vectors (Lights, Audio, Spawns) are pinned above ALL tokens.
     const entGfx = new PIXI.Graphics();
+    entGfx.zIndex = 9999;
     entitiesContainer.addChild(entGfx);
 
     const viewportBounds = {
@@ -128,7 +134,7 @@
     };
     const visibleEntities = mapStore.quadtree?.retrieve(viewportBounds) || [];
 
-    // 1. Draw Props (Images)
+    // 1. Draw Props (Images) - Using parent containers for synced Z-Index grouping
     (manifest.entities?.props || []).forEach((prop) => {
       if (!visibleEntities.find((v) => v.id === prop.id)) return;
 
@@ -137,18 +143,25 @@
       const vAlpha = getVisAlpha(prop);
 
       try {
+        const propContainer = new PIXI.Container();
+        propContainer.x = px;
+        propContainer.y = py;
+        propContainer.zIndex = Number(prop.properties?.z_index) || 0;
+
         const texture = getTexture(prop.image);
         const sprite = new PIXI.Sprite(texture);
         sprite.anchor.set(0.5);
-        sprite.x = px;
-        sprite.y = py;
         sprite.rotation = (Number(prop.rotation) || 0) * (Math.PI / 180);
         sprite.scale.set((Number(prop.scale) || 100) / 100);
         sprite.alpha = vAlpha;
-        entitiesContainer.addChild(sprite);
+
+        propContainer.addChild(sprite);
 
         if (selectedIds.has(prop.id)) {
           const boundsGfx = new PIXI.Graphics();
+          const isLocked = prop.properties?.locked;
+          const strokeColor = isLocked ? 0xef4444 : 0x00f0ff; // Red outline if locked
+
           boundsGfx
             .rect(
               -sprite.width / 2,
@@ -156,12 +169,12 @@
               sprite.width,
               sprite.height,
             )
-            .stroke({ width: 3, color: 0x00f0ff, alpha: 1 });
-          boundsGfx.x = px;
-          boundsGfx.y = py;
+            .stroke({ width: 3, color: strokeColor, alpha: 1 });
           boundsGfx.rotation = sprite.rotation;
-          entitiesContainer.addChild(boundsGfx);
+          propContainer.addChild(boundsGfx);
         }
+
+        entitiesContainer.addChild(propContainer);
       } catch (e) {
         console.warn("Failed to render prop sprite", e);
       }
@@ -327,6 +340,7 @@
 
     // 3. Draw Event Linking Lines
     const linkGfx = new PIXI.Graphics();
+    linkGfx.zIndex = 10000; // Pinned above absolutely everything
     entitiesContainer.addChild(linkGfx);
 
     (manifest.entities?.events || []).forEach((evt) => {
