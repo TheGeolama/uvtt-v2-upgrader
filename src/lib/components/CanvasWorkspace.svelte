@@ -546,8 +546,12 @@
 
   function handlePointerDown(e) {
     if (!viewportContainer || !activeMap) return;
+
+    if (e.button === 0 || e.button === 1) {
+      mapStore.closeContextMenu(); // Any left/middle click safely dismisses it
+    }
+
     // AUDIO ENGINE INIT
-    // Browsers strictly block Web Audio until the user clicks/interacts with the page
     if (!audioEngine.isInitialized) {
       audioEngine.init();
     } else {
@@ -563,6 +567,108 @@
         isDraggingVisionToken = true;
         return;
       }
+    }
+
+    // --- CONTEXT MENU (RIGHT CLICK) ---
+    if (
+      e.button === 2 &&
+      activeTool === "select" &&
+      draftingPath.length === 0 &&
+      !e.altKey &&
+      !e.shiftKey
+    ) {
+      const coords = getGridCoordinates(e.clientX, e.clientY, false, "select");
+      const manifest = activeMap.manifest;
+      let closestItem = null;
+      let minGridDistSq = (15 / scale / coords.gridX) ** 2;
+      const candidates =
+        mapStore.quadtree?.retrieve({
+          x: coords.exactX - 1,
+          y: coords.exactY - 1,
+          w: 2,
+          h: 2,
+        }) || [];
+
+      const checkEntityCollision = (items, getPos) => {
+        items.forEach((item) => {
+          if (!candidates.find((c) => c.id === item.id)) return;
+          const pos = getPos(item);
+          if (!pos || isNaN(pos.x) || isNaN(pos.y)) return;
+          const distSq =
+            (coords.exactX - pos.x) ** 2 + (coords.exactY - pos.y) ** 2;
+          if (distSq < minGridDistSq) {
+            minGridDistSq = distSq;
+            closestItem = item;
+          }
+        });
+      };
+      const checkGeomSegments = (items) => {
+        items.forEach((item) => {
+          if (!item.path || item.path.length < 2) return;
+          for (let i = 0; i < item.path.length - 1; i++) {
+            const x1 = Number(item.path[i].x),
+              y1 = Number(item.path[i].y);
+            const x2 = Number(item.path[i + 1].x),
+              y2 = Number(item.path[i + 1].y);
+            const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
+            if (l2 === 0) continue;
+            let t = Math.max(
+              0,
+              Math.min(
+                1,
+                ((coords.exactX - x1) * (x2 - x1) +
+                  (coords.exactY - y1) * (y2 - y1)) /
+                  l2,
+              ),
+            );
+            const distSq =
+              (coords.exactX - (x1 + t * (x2 - x1))) ** 2 +
+              (coords.exactY - (y1 + t * (y2 - y1))) ** 2;
+            if (distSq < minGridDistSq) {
+              minGridDistSq = distSq;
+              closestItem = item;
+            }
+          }
+        });
+      };
+
+      checkEntityCollision(manifest.entities?.lights || [], (i) => ({
+        x: Number(i.position?.x),
+        y: Number(i.position?.y),
+      }));
+      checkEntityCollision(manifest.entities?.audio?.zones || [], (i) => ({
+        x: Number(i.center?.x),
+        y: Number(i.center?.y),
+      }));
+      checkEntityCollision(manifest.entities?.events || [], (i) => ({
+        x: Number(i.trigger_bounds?.center?.x),
+        y: Number(i.trigger_bounds?.center?.y),
+      }));
+      checkEntityCollision(manifest.entities?.landing_zones || [], (i) => ({
+        x: Number(i.coordinates?.[0]),
+        y: Number(i.coordinates?.[1]),
+      }));
+      checkEntityCollision(manifest.entities?.emitters || [], (i) => ({
+        x: Number(i.position?.x),
+        y: Number(i.position?.y),
+      }));
+      checkEntityCollision(manifest.entities?.props || [], (i) => ({
+        x: Number(i.position?.x),
+        y: Number(i.position?.y),
+      }));
+      checkGeomSegments(manifest.geometry?.walls || []);
+      checkGeomSegments(manifest.geometry?.portals || []);
+      checkGeomSegments(manifest.geometry?.overhead || []);
+
+      if (closestItem) {
+        if (!mapStore.selectedItemIds.includes(closestItem.id)) {
+          mapStore.selectItem(closestItem.id, false);
+        }
+        mapStore.openContextMenu(e.clientX, e.clientY);
+      } else {
+        mapStore.closeContextMenu();
+      }
+      return; // Prevent triggering any panning or drafting logic!
     }
 
     if (e.button === 2 && draftingPath.length === 0) {
@@ -599,6 +705,7 @@
     if (
       e.button === 1 ||
       (e.button === 2 &&
+        activeTool !== "select" &&
         draftingPath.length === 0 &&
         !e.altKey &&
         !e.shiftKey) ||
@@ -990,6 +1097,7 @@
     }
 
     if (e.key === "Escape") {
+      mapStore.closeContextMenu();
       if (isGridAligning || mapStore.gridAlignBoxes.length > 0) {
         isGridAligning = false;
         alignBoxStart = null;
@@ -1104,6 +1212,39 @@
   </div>
 {/if}
 
+<!-- CONTEXT MENU OVERLAY -->
+{#if mapStore.contextMenu.show}
+  <div
+    class="context-menu"
+    style="left: {mapStore.contextMenu.x}px; top: {mapStore.contextMenu.y}px;"
+  >
+    <div class="context-menu-header">QUICK ACTIONS</div>
+    <button
+      class="context-btn"
+      onclick={() => mapStore.toggleSelectionVisibility()}
+    >
+      👁️ Toggle Visibility (GM/Player)
+    </button>
+    <button class="context-btn" onclick={() => mapStore.toggleSelectionLock()}>
+      🔒 Toggle Lock Position
+    </button>
+    <div class="context-divider"></div>
+    <button class="context-btn" onclick={() => mapStore.adjustZIndex(1)}>
+      ⬆️ Send Forward
+    </button>
+    <button class="context-btn" onclick={() => mapStore.adjustZIndex(-1)}>
+      ⬇️ Send Backward
+    </button>
+    <div class="context-divider"></div>
+    <button
+      class="context-btn danger"
+      onclick={() => mapStore.deleteSelected()}
+    >
+      🗑️ Delete
+    </button>
+  </div>
+{/if}
+
 <style>
   .pixi-workspace {
     width: 100vw;
@@ -1191,5 +1332,54 @@
   .hud-toggle-btn:hover {
     background: rgba(255, 255, 255, 0.1);
     color: #fff;
+  }
+
+  /* --- CONTEXT MENU OVERLAY --- */
+  .context-menu {
+    position: absolute;
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    z-index: 9999;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    min-width: 220px;
+  }
+  .context-menu-header {
+    font-size: 10px;
+    font-weight: bold;
+    color: #94a3b8;
+    padding: 4px 8px;
+    border-bottom: 1px solid #1e293b;
+    margin-bottom: 2px;
+    letter-spacing: 0.5px;
+  }
+  .context-btn {
+    background: transparent;
+    border: none;
+    color: #e2e8f0;
+    text-align: left;
+    padding: 8px;
+    font-size: 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .context-btn:hover {
+    background: #1e293b;
+    color: #00f0ff;
+  }
+  .context-btn.danger:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+  }
+  .context-divider {
+    height: 1px;
+    background: #1e293b;
+    margin: 2px 0;
   }
 </style>

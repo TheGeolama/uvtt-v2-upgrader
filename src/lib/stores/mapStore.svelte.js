@@ -40,6 +40,9 @@ class MapStore {
         showFov: true
     });
 
+    // --- CONTEXT MENU STATE ---
+    contextMenu = $state({ show: false, x: 0, y: 0 });
+
     // --- GLOBAL ASSET LIBRARY ---
     globalAssets = $state({ images: [], audio: [] });
     mountedAssetDirectory = $state("");
@@ -57,7 +60,7 @@ class MapStore {
         event: { name: 'New Event', eventType: 'State Toggle', activation: 'proximity', trigger_bounds: { radius: 0.5 }, targetSpawnId: "", autoCreateMatch: false, targetFloorId: "", target_entity_ids: [], target_action: "toggle_visibility", properties: { visibility: 'visible' } },
         audio: { track: "", volume: 100, radius: 5, inner_radius: 2.5, muffledByWalls: true, properties: { visibility: 'visible' } },
         emitter: { type: 'weather', style: 'rain', isGlobal: false, layering: 'above', tint: '#ffffff', scale: 100, direction: 180, speed: 50, intensity: 50, variance: 10, graphic: '', position: { z: 0 }, properties: { visibility: 'visible' } },
-        prop: { scale: 100, rotation: 0, position: { z: 0 }, properties: { visibility: 'visible' } },
+        prop: { scale: 100, rotation: 0, position: { z: 0 }, properties: { visibility: 'visible', z_index: 0, locked: false } },
         asset: {} 
     });
 
@@ -80,6 +83,69 @@ class MapStore {
 
     get activeMap() { return this.catalog.find(m => m.id === this.activeMapId) || null; }
     get redrawTick() { return this.updateTrigger; }
+
+    // --- HELPER: GET FULL ITEM BY ID ---
+    getItem(id) {
+        if (!this.activeMap) return null;
+        const m = this.activeMap.manifest;
+        let found = null;
+        for (const cat of ['walls', 'portals', 'overhead']) {
+            found = m.geometry[cat]?.find(i => i.id === id);
+            if (found) return found;
+        }
+        for (const cat of ['lights', 'landing_zones', 'events', 'emitters', 'props']) {
+            found = m.entities[cat]?.find(i => i.id === id);
+            if (found) return found;
+        }
+        found = m.entities.audio?.zones?.find(i => i.id === id);
+        return found || null;
+    }
+
+    // --- CONTEXT MENU QUICK ACTIONS ---
+    openContextMenu(x, y) {
+        this.contextMenu = { show: true, x, y };
+        this.updateTrigger++;
+    }
+
+    closeContextMenu() {
+        if (this.contextMenu.show) {
+            this.contextMenu.show = false;
+            this.updateTrigger++;
+        }
+    }
+
+    adjustZIndex(delta) {
+        this.selectedItemIds.forEach(id => {
+            const item = this.getItem(id);
+            if (item && item.properties) {
+                const currentZ = Number(item.properties.z_index) || 0;
+                this.updateItemProperty(id, 'properties.z_index', currentZ + delta);
+            }
+        });
+        this.closeContextMenu();
+    }
+
+    toggleSelectionVisibility() {
+        this.selectedItemIds.forEach(id => {
+            const item = this.getItem(id);
+            if (item && item.properties) {
+                const newVis = item.properties.visibility === 'hidden' ? 'visible' : 'hidden';
+                this.updateItemProperty(id, 'properties.visibility', newVis);
+            }
+        });
+        this.closeContextMenu();
+    }
+
+    toggleSelectionLock() {
+        this.selectedItemIds.forEach(id => {
+            const item = this.getItem(id);
+            if (item && item.properties) {
+                const isLocked = !!item.properties.locked;
+                this.updateItemProperty(id, 'properties.locked', !isLocked);
+            }
+        });
+        this.closeContextMenu();
+    }
 
     // --- GRID ALIGNMENT CONTROLLER ---
     setGridOrigin(imagePixelX, imagePixelY) {
@@ -362,6 +428,7 @@ class MapStore {
     setTool(tool) {
         this.activeTool = tool;
         this.selectedItemIds = [];
+        this.closeContextMenu();
         if (tool !== 'grid_align') {
             this.gridAlignBoxes = [];
         }
@@ -370,6 +437,7 @@ class MapStore {
 
     clearSelection() {
         this.selectedItemIds = [];
+        this.closeContextMenu();
         this.updateTrigger++;
     }
 
@@ -972,6 +1040,10 @@ class MapStore {
         if (!activeMap) return;
         const m = activeMap.manifest;
         
+        // Enforce Lock Constraint
+        const itemLockCheck = this.getItem(id);
+        if (itemLockCheck && itemLockCheck.properties?.locked) return;
+        
         ['walls', 'portals', 'overhead'].forEach(cat => {
             const itemIndex = m.geometry[cat]?.findIndex(i => i.id === id);
             if (itemIndex > -1) {
@@ -1012,6 +1084,10 @@ class MapStore {
         const m = activeMap.manifest;
         
         this.selectedItemIds.forEach(id => {
+            // Enforce Lock Constraint
+            const itemLockCheck = this.getItem(id);
+            if (itemLockCheck && itemLockCheck.properties?.locked) return;
+            
             ['walls', 'portals', 'overhead'].forEach(cat => {
                 const itemIndex = m.geometry[cat]?.findIndex(i => i.id === id);
                 if (itemIndex > -1) {
@@ -1093,6 +1169,7 @@ class MapStore {
         this.pushHistory("Deleted Selection");
         this.updateSpatialIndex();
         this.updateTrigger++;
+        this.closeContextMenu();
     }
 
     convertCategory(id, targetCategory, portalType = 'door') {
