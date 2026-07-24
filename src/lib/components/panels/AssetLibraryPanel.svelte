@@ -5,8 +5,9 @@
     typeof window !== "undefined" && !!window?.go?.main,
   );
 
-  // --- GENRE FILTERING STATE ---
+  // --- FILTERING STATE ---
   let selectedGenre = $state("All");
+  let searchQuery = $state("");
 
   // Dynamically extract unique top-level folders (Genres) from the loaded assets
   let availableGenres = $derived.by(() => {
@@ -75,17 +76,25 @@
   // --- FILTERED ASSET ARRAYS ---
   let filteredAudio = $derived(
     (mapStore.globalAssets?.audio || []).filter((a) => {
-      if (selectedGenre === "All") return true;
       const normalized = (a.path || a.name || "").replace(/\\/g, "/");
-      return normalized.includes(`/${selectedGenre}/`);
+      const matchesGenre =
+        selectedGenre === "All" || normalized.includes(`/${selectedGenre}/`);
+      const matchesSearch =
+        searchQuery.trim() === "" ||
+        normalized.toLowerCase().includes(searchQuery.toLowerCase().trim());
+      return matchesGenre && matchesSearch;
     }),
   );
 
   let filteredImages = $derived(
     (mapStore.globalAssets?.images || []).filter((img) => {
-      if (selectedGenre === "All") return true;
       const normalized = (img.path || img.name || "").replace(/\\/g, "/");
-      return normalized.includes(`/${selectedGenre}/`);
+      const matchesGenre =
+        selectedGenre === "All" || normalized.includes(`/${selectedGenre}/`);
+      const matchesSearch =
+        searchQuery.trim() === "" ||
+        normalized.toLowerCase().includes(searchQuery.toLowerCase().trim());
+      return matchesGenre && matchesSearch;
     }),
   );
 </script>
@@ -105,18 +114,31 @@
       props, and audio tracks into the engine without uploading.
     </p>
 
-    {#if availableGenres.length > 0}
-      <label class="genre-filter">
-        <span>Filter by Genre:</span>
-        <select bind:value={selectedGenre}>
-          <option value="All">All Genres</option>
-          {#each availableGenres as genre}
-            <option value={genre}>{genre}</option>
-          {/each}
-        </select>
-      </label>
+    <!-- SEARCH & FILTER CONTROLS -->
+    {#if mapStore.globalAssets?.images?.length > 0 || mapStore.globalAssets?.audio?.length > 0}
+      <div class="filters-container">
+        {#if availableGenres.length > 0}
+          <label class="genre-filter">
+            <span>Filter by Genre:</span>
+            <select bind:value={selectedGenre}>
+              <option value="All">All Genres</option>
+              {#each availableGenres as genre}
+                <option value={genre}>{genre}</option>
+              {/each}
+            </select>
+          </label>
+        {/if}
+
+        <input
+          type="text"
+          class="search-input"
+          placeholder="🔍 Search assets..."
+          bind:value={searchQuery}
+        />
+      </div>
     {/if}
 
+    <!-- ASSET LISTS -->
     {#if filteredAudio.length > 0}
       <div style="margin-top: 15px;">
         <span style="font-size: 10px; font-weight: bold; color: #00f0ff;"
@@ -179,6 +201,15 @@
           {/each}
         </div>
       </div>
+    {/if}
+
+    {#if searchQuery.trim() !== "" && filteredImages.length === 0 && filteredAudio.length === 0}
+      <p
+        class="helper-text"
+        style="margin-top: 15px; text-align: center; font-style: italic;"
+      >
+        No assets matched your search.
+      </p>
     {/if}
   {:else}
     <button
@@ -254,21 +285,50 @@
     border-color: rgba(245, 158, 11, 0.4);
     color: #fcd34d;
   }
+
+  /* FILTER AND SEARCH STYLES */
+  .filters-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+    background: rgba(15, 23, 42, 0.6);
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid #1e293b;
+  }
   .genre-filter {
     display: flex;
     align-items: center;
     gap: 8px;
     font-size: 11px;
     color: #94a3b8;
-    margin-top: 12px;
   }
   .genre-filter select {
-    background: #0f172a;
+    background: #05080e;
     border: 1px solid #334155;
     color: #fff;
     padding: 4px 8px;
     border-radius: 4px;
     outline: none;
     flex: 1;
+  }
+  .search-input {
+    width: 100%;
+    background: #05080e;
+    border: 1px solid #334155;
+    color: #fff;
+    padding: 6px 8px;
+    border-radius: 4px;
+    outline: none;
+    font-size: 12px;
+    box-sizing: border-box;
+    transition: border-color 0.2s;
+  }
+  .search-input:focus {
+    border-color: #00f0ff;
+  }
+  .search-input::placeholder {
+    color: #64748b;
   }
 </style>
