@@ -102,8 +102,8 @@
   });
 
   $effect(() => {
-    let _ = mapStore.redrawTick; // Force reactivity on user interaction
-    let __ = mapStore.updateTrigger; // Also force reactivity exactly when textures finish downloading
+    let _ = mapStore.redrawTick; // Force reactivity on user interaction (panning)
+    let __ = mapStore.updateTrigger; // Force reactivity instantly when items are dragged or loaded
 
     if (!isReady || !mapStore.activeMap) return;
 
@@ -306,20 +306,37 @@
             .circle(px, py, 8)
             .stroke({ width: 3, color: "#00f0ff", alpha: 1 });
         }
+      } else if (ent.position && ent.scale !== undefined) {
+        // EMITTERS
+        const px = (Number(ent.position.x) - originX) * gridX;
+        const py = (Number(ent.position.y) - originY) * gridY;
+        entGfx.moveTo(px - 10, py).lineTo(px + 10, py);
+        entGfx.moveTo(px, py - 10).lineTo(px, py + 10);
+        entGfx.stroke({ width: 3, color: 0x06b6d4, alpha: 0.9 * vAlpha });
+
+        entGfx
+          .circle(px, py, 4)
+          .fill({ color: "#ffffff", alpha: 0.9 * vAlpha });
+
+        if (selectedIds.has(ent.id))
+          entGfx
+            .circle(px, py, 8)
+            .stroke({ width: 3, color: "#00f0ff", alpha: 1 });
       }
+    });
 
-      // Draw linkage lines for Events targeting entities
-      if (ent.trigger_bounds && (ent.target_entity_ids || ent.targetSpawnId)) {
-        const linkGfx = new PIXI.Graphics();
-        entitiesContainer.addChild(linkGfx);
+    // 3. Draw Event Linking Lines
+    const linkGfx = new PIXI.Graphics();
+    entitiesContainer.addChild(linkGfx);
 
-        const ex = (Number(ent.trigger_bounds.center.x) - originX) * gridX;
-        const ey = (Number(ent.trigger_bounds.center.y) - originY) * gridY;
-
+    (manifest.entities?.events || []).forEach((evt) => {
+      if (selectedIds.has(evt.id)) {
+        const ex = (Number(evt.trigger_bounds?.center?.x) - originX) * gridX;
+        const ey = (Number(evt.trigger_bounds?.center?.y) - originY) * gridY;
         if (isNaN(ex) || isNaN(ey)) return;
 
-        if (ent.target_entity_ids && ent.target_entity_ids.length > 0) {
-          ent.target_entity_ids.forEach((tid) => {
+        if (evt.target_entity_ids && evt.target_entity_ids.length > 0) {
+          evt.target_entity_ids.forEach((tid) => {
             const tCenter = getEntityCenter(tid, manifest);
             if (tCenter) {
               const tx = (tCenter.x - originX) * gridX;
@@ -341,25 +358,21 @@
         }
 
         if (
-          ent.targetSpawnId &&
-          (!ent.targetFloorId || ent.targetFloorId === mapStore.activeMapId)
+          evt.targetSpawnId &&
+          (!evt.targetFloorId || evt.targetFloorId === mapStore.activeMapId)
         ) {
-          const tCenter = getEntityCenter(ent.targetSpawnId, manifest);
+          const tCenter = getEntityCenter(evt.targetSpawnId, manifest);
           if (tCenter) {
             const tx = (tCenter.x - originX) * gridX;
             const ty = (tCenter.y - originY) * gridY;
             linkGfx
               .moveTo(ex, ey)
               .lineTo(tx, ty)
-              .stroke({
-                width: 2,
-                color: 0xeab308,
-                alpha: 0.8,
-                dash: [8, 6],
-              });
+              .stroke({ width: 2, color: 0x3b82f6, alpha: 0.8, dash: [8, 6] });
+
             linkGfx
               .circle(tx, ty, 8)
-              .stroke({ width: 2, color: 0xeab308, alpha: 1 });
+              .stroke({ width: 2, color: 0x3b82f6, alpha: 1 });
           }
         }
       }
