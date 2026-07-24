@@ -103,12 +103,26 @@
   <h3>📂 LOCAL ASSET LIBRARY</h3>
 
   {#if isDesktopPro}
-    <button
-      class="action-btn wave"
-      onclick={() => mapStore.mountAssetLibrary()}
-    >
-      📁 Mount Local Folder
-    </button>
+    <div style="display: flex; gap: 8px;">
+      <button
+        class="action-btn wave"
+        onclick={() => mapStore.mountAssetLibrary()}
+      >
+        📁 Mount Local Folder
+      </button>
+
+      {#if mapStore.mountedAssetDirectory}
+        <button
+          class="action-btn"
+          style="flex: 0.2; justify-content: center;"
+          onclick={() => mapStore.refreshAssetLibrary()}
+          title="Refresh Directory"
+        >
+          🔄
+        </button>
+      {/if}
+    </div>
+
     <p class="helper-text" style="margin-top: 8px;">
       Select a directory on your hard drive to instantly load custom tokens,
       props, and audio tracks into the engine without uploading.
