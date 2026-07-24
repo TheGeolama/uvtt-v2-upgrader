@@ -193,21 +193,23 @@
       const addGeom = (items, isPortal) => {
         items.forEach((item) => {
           if (isPortal) {
-            // Broad-net check to catch windows and open doors regardless of internal data schema
-            const typeStr = String(
-              item.type || item.properties?.type || "",
+            // Aggressively check both the root object and nested properties for closure state
+            const t = String(
+              item.type || item.properties?.type || item.portalType || "",
             ).toLowerCase();
-            const statusStr = String(
-              item.properties?.status || "",
+            const s = String(
+              item.status || item.properties?.status || "",
             ).toLowerCase();
-            const isClosed = item.properties?.closed;
+            const c =
+              item.closed !== undefined ? item.closed : item.properties?.closed;
 
             if (
-              typeStr === "window" ||
-              statusStr === "window" ||
-              statusStr === "open" ||
-              statusStr === "broken" ||
-              isClosed === false
+              t.includes("window") ||
+              s.includes("window") ||
+              s.includes("open") ||
+              s.includes("broken") ||
+              c === false ||
+              c === "false"
             ) {
               return; // Let light pass through! Do not add this geometry to the light blockers.
             }
