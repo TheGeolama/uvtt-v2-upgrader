@@ -190,16 +190,29 @@
       const toPixelY = (gy) => (gy - originY) * gridY;
 
       let pixelWalls = [];
-      const addGeom = (items, isClosedPortal) => {
+      const addGeom = (items, isPortal) => {
         items.forEach((item) => {
-          // Windows and broken doors let light through
-          if (
-            isClosedPortal &&
-            (item.properties?.status === "open" ||
-              item.properties?.status === "broken" ||
-              item.properties?.status === "window")
-          )
-            return;
+          if (isPortal) {
+            // Broad-net check to catch windows and open doors regardless of internal data schema
+            const typeStr = String(
+              item.type || item.properties?.type || "",
+            ).toLowerCase();
+            const statusStr = String(
+              item.properties?.status || "",
+            ).toLowerCase();
+            const isClosed = item.properties?.closed;
+
+            if (
+              typeStr === "window" ||
+              statusStr === "window" ||
+              statusStr === "open" ||
+              statusStr === "broken" ||
+              isClosed === false
+            ) {
+              return; // Let light pass through! Do not add this geometry to the light blockers.
+            }
+          }
+
           if (!item.path || item.path.length < 2) return;
           for (let i = 0; i < item.path.length - 1; i++) {
             pixelWalls.push({
