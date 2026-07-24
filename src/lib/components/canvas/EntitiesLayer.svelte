@@ -169,7 +169,7 @@
               sprite.width,
               sprite.height,
             )
-            .stroke({ width: 3, color: strokeColor, alpha: 1 });
+            .stroke({ width: 3, color: strokeColor, alpha: 0.4 });
           boundsGfx.rotation = sprite.rotation;
           propContainer.addChild(boundsGfx);
         }
