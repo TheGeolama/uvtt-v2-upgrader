@@ -109,7 +109,7 @@
         handlePropChange("prop", "position.z", parseFloat(e.target.value))}
     />
   </label>
-  <!-- NEW LAYER & LOCK CONFIGURATION -->
+  <!-- LAYER & LOCK CONFIGURATION -->
   <label>
     <span>Z-Index (Rendering Layer):</span>
     <input
@@ -117,7 +117,11 @@
       step="1"
       value={activeConf.properties?.z_index ?? 0}
       onchange={(e) =>
-        handlePropChange("prop", "properties.z_index", parseInt(e.target.value))}
+        handlePropChange(
+          "prop",
+          "properties.z_index",
+          parseInt(e.target.value),
+        )}
     />
   </label>
   <label class="checkbox-row">
@@ -129,8 +133,21 @@
     />
     <span>Locked (Prevent Dragging & Movement)</span>
   </label>
-  <!-- END NEW -->
 {:else if displayCategory === "wall"}
+  <label class="checkbox-row">
+    <input
+      type="checkbox"
+      checked={activeConf.isBezier || false}
+      onchange={(e) => {
+        if (e.target.checked) {
+          mapStore.smoothSelectedWalls();
+        } else {
+          handlePropChange("wall", "isBezier", false);
+        }
+      }}
+    />
+    <span>Smooth Path (Bezier Curve)</span>
+  </label>
   <label>
     <span>Wall Type:</span>
     <select
@@ -340,7 +357,6 @@
         <option value="lock_unlock">Lock / Unlock</option>
         <option value="turn_on_off">Turn On / Off (Lights)</option>
         <option value="play_stop">Play / Stop (Audio)</option>
-        <!-- NEW TRAPDOOR BRIDGE LOGIC -->
         <option value="enable_event">Enable Event (Linked)</option>
         <option value="disable_event">Disable Event (Linked)</option>
       </select>
