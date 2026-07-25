@@ -1,16 +1,27 @@
+<!-- 
+  @component MapSettingsPanel
+  Global configuration inspector for the currently active map level[cite: 18].
+  Manages foundational environment variables such as grid topology (Square/Hex/Isometric), 
+  DPI resolution, visual line thickness, and map-wide ambient audio tracks[cite: 18].
+-->
 <script>
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
 
+  // --- SVELTE 5 REACTIVE BINDINGS ---[cite: 18]
   let activeMap = $derived(mapStore.activeMap);
   let manifest = $derived(activeMap?.manifest);
 
-  // Local state to track if panels are open or closed
+  // Local UI state to track if accordion panels are open or closed[cite: 18]
   let envOpen = $state(true);
   let audioOpen = $state(true);
 </script>
 
 {#if activeMap}
+  <!-- ========================================== -->
+  <!-- ENVIRONMENT CONFIGURATION                  -->
+  <!-- ========================================== -->
   <div class="panel-section">
+    <!-- Accordion Header[cite: 18] -->
     <button
       class="collapse-header"
       aria-expanded={envOpen}
@@ -38,6 +49,7 @@
             <option value="isometric">Isometric</option>
           </select>
         </label>
+
         <label>
           <span>Grid Size (Pixels):</span>
           <input
@@ -51,6 +63,7 @@
               )}
           />
         </label>
+
         <label>
           <span>Grid Color:</span>
           <input
@@ -64,6 +77,7 @@
               )}
           />
         </label>
+
         <label>
           <span>Main Grid Thickness (px):</span>
           <div class="slider-row">
@@ -95,6 +109,7 @@
             />
           </div>
         </label>
+
         <label>
           <span>Subgrid Thickness (px):</span>
           <div class="slider-row">
@@ -130,7 +145,11 @@
     {/if}
   </div>
 
+  <!-- ========================================== -->
+  <!-- GLOBAL AUDIO CONFIGURATION                 -->
+  <!-- ========================================== -->
   <div class="panel-section">
+    <!-- Accordion Header[cite: 18] -->
     <button
       class="collapse-header"
       aria-expanded={audioOpen}
@@ -144,6 +163,7 @@
       <div class="panel-content">
         <label>
           <span>Background Soundtrack:</span>
+          <!-- Dynamically populates available tracks from the loaded mapStore blobs[cite: 18] -->
           <select
             value={manifest.music?.track || ""}
             onchange={(e) =>
@@ -159,8 +179,10 @@
             {/each}
           </select>
         </label>
+
         <label>
           <span>Ambient Soundscape:</span>
+          <!-- Distinct from soundtrack, used for environmental loops (wind, rain, tavern noise)[cite: 18] -->
           <select
             value={manifest.ambience?.track || ""}
             onchange={(e) =>

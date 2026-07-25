@@ -1,14 +1,31 @@
+<!-- 
+  @component ExportMenu
+  Floating UI panel that manages map compilation and exporting[cite: 14].
+  Handles translating the in-memory map store into downloadable archives, 
+  supporting both the modern UVTT v2 (.uvtt2z) compound folder structure and 
+  the legacy V1 (.dd2vtt) monolithic JSON structure[cite: 14].
+-->
 <script>
-  // --- SCRIPT START ---
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
   import { UvttMigrationEngine } from "$utils/migrationEngine.js";
   import JSZip from "jszip";
 
-  let targetProfile = $state("v2"); // Target profile option: 'v2' or 'v1'
-  let packageAsCompound = $state(true); // Checkbox state for compound export
+  /** @type {string} Target export profile format ('v2' or 'v1')[cite: 14]. */
+  let targetProfile = $state("v2");
+
+  /** @type {boolean} Toggle for compiling all maps in the catalog into a single zip[cite: 14]. */
+  let packageAsCompound = $state(true);
+
+  /** @type {boolean} UI lock flag to prevent duplicate export triggers[cite: 14]. */
   let isCompiling = $state(false);
 
-  // Cryptographic SHA-256 fingerprinting utility for split-resolution maps
+  /**
+   * Cryptographic SHA-256 fingerprinting utility[cite: 14].
+   * Used to generate manifest.hash receipts to ensure archive integrity for split-resolution maps[cite: 14].
+   *
+   * @param {Blob} blob - The binary file to hash[cite: 14].
+   * @returns {Promise<string>} The generated hex string[cite: 14].
+   */
   async function generateSha256Hash(blob) {
     const buffer = await blob.arrayBuffer();
     const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
@@ -16,7 +33,13 @@
     return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
   }
 
-  // OS safe slugify function
+  /**
+   * OS-safe string formatting utility[cite: 14].
+   * Converts user-defined map names into safe directory folder names[cite: 14].
+   *
+   * @param {string} text - The raw filename[cite: 14].
+   * @returns {string} The slugified string[cite: 14].
+   */
   function slugify(text) {
     return text
       .toString()
@@ -28,6 +51,12 @@
       .replace(/-+$/, "");
   }
 
+  /**
+   * Appends an invisible anchor tag to the DOM to force the browser to download the compiled blob[cite: 14].
+   *
+   * @param {Blob} blob - The compiled file or archive[cite: 14].
+   * @param {string} filename - The target output filename[cite: 14].
+   */
   async function triggerDownload(blob, filename) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -39,6 +68,10 @@
     URL.revokeObjectURL(url);
   }
 
+  /**
+   * Main export handler triggered by the UI button[cite: 14].
+   * Routes the payload to the appropriate compilation pipeline based on the selected profile[cite: 14].
+   */
   async function handleExport() {
     if (!$mapStore.manifest) return;
     isCompiling = true;
@@ -57,8 +90,12 @@
     }
   }
 
+  /**
+   * Legacy Export Pipeline (v1.0.0)[cite: 14].
+   * Flattens curves, strips advanced 3D/audio data, and embeds the image as a Base64 string directly in the JSON[cite: 14].
+   */
   async function exportV1() {
-    // Convert in-memory manifest to legacy structure
+    // Convert in-memory manifest to legacy structure[cite: 14]
     const masterState = {
       versionSource: "2.0.0",
       dimensions: {
@@ -75,7 +112,7 @@
       "1.0.0",
     );
 
-    // Re-embed image Base64 payload
+    // Re-embed image Base64 payload since V1 does not support external binary assets[cite: 14]
     const activeFilename =
       mapStore.catalog.find((m) => m.id === $mapStore.manifest.id)?.filename ||
       "map.dd2vtt";
@@ -104,11 +141,15 @@
     }
   }
 
+  /**
+   * Modern Export Pipeline (v2.0.0)[cite: 14].
+   * Packages the map(s) and binary assets into a secure JSZip archive[cite: 14].
+   */
   async function exportV2() {
     const zip = new JSZip();
 
     if (packageAsCompound && mapStore.catalog.length > 1) {
-      // COMPOUND ARCHIVE MODE
+      // COMPOUND ARCHIVE MODE: Bundles the entire catalog into a multi-level dungeon[cite: 14]
       const rootManifest = {
         uvtt_version: "2.0.0",
         type: "compound",
@@ -141,7 +182,7 @@
         );
         const mapSubFolder = mapsFolder.folder(slug);
 
-        // Extract image asset and calculate hashes
+        // Extract image asset and calculate hashes for secure verification[cite: 14]
         const res = await fetch(m.image_url);
         const imgBlob = await res.blob();
         const imgHash = await generateSha256Hash(imgBlob);
@@ -149,11 +190,11 @@
         mapSubFolder.file("map.webp", imgBlob);
         hashEntries.push(`maps/${slug}/map.webp: ${imgHash}`);
 
-        // Deep copy manifest to perform local URI transformations
+        // Deep copy manifest to perform local URI transformations without mutating the active store[cite: 14]
         const manifestClone = JSON.parse(JSON.stringify(m.manifest));
         manifestClone.image = `internal://${slug}/map.webp`;
 
-        // Rewrite teleport URLs
+        // Rewrite teleport URLs: Converts relative URLs to internal compound references[cite: 14]
         if (manifestClone.entities?.events) {
           manifestClone.entities.events.forEach((ev) => {
             if (
@@ -166,7 +207,7 @@
               const destFilename = destParts[0].replace(".uvtt2z", "");
               const destSlug = slugify(destFilename);
 
-              // Rewrite federated reference into internal compound reference
+              // Rewrite federated reference into internal compound reference[cite: 14]
               const matchingMap = mapStore.catalog.find(
                 (cat) =>
                   slugify(
@@ -183,7 +224,7 @@
           });
         }
 
-        // Isolate files in subfolders
+        // Isolate files into discrete sub-schemas (geometry vs entities)[cite: 14]
         const geometry = manifestClone.geometry || {
           walls: [],
           portals: [],
@@ -197,7 +238,7 @@
           emitters: [],
         };
 
-        // Delete references from global index
+        // Delete references from global index to prevent duplication[cite: 14]
         delete manifestClone.geometry;
         delete manifestClone.entities;
 
@@ -214,7 +255,7 @@
       const zipBlob = await zip.generateAsync({ type: "blob" });
       triggerDownload(zipBlob, "campaign_compound_dungeon.uvtt2z");
     } else {
-      // FEDERATED ARCHIVE MODE (Single map directory)
+      // FEDERATED ARCHIVE MODE: Exports a single map directory[cite: 14]
       const activeMap = mapStore.catalog.find(
         (m) => m.id === $mapStore.manifest.id,
       );
@@ -226,7 +267,7 @@
 
       zip.file("assets/map.webp", imgBlob);
 
-      // Copy sound blobs into asset directory
+      // Copy sound blobs into asset directory[cite: 14]
       const hashEntries = [`assets/map.webp: ${imgHash}`];
       const assetsFolder = zip.folder("assets");
 

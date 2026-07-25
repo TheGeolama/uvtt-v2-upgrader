@@ -1,3 +1,10 @@
+/**
+ * @fileoverview Central Map Engine State Store (Svelte 5)
+ * Handles all geometric, entity, and state mutations for the VTT.
+ * Includes native support for history (Undo/Redo), spatial indexing (QuadTrees),
+ * grid alignment math, and Universal VTT Compound Asset (.uvtt2a) packaging.
+ */
+
 import { QuadTree, pointsToBezier } from '$lib/utils/spatial.js';
 import { saveToDB, loadFromDB } from '$lib/utils/database.js';
 import { verifyAndCleanManifest } from '$lib/utils/schema.js';
@@ -16,16 +23,17 @@ import {
 } from '$lib/utils/projectIO.js';
 
 class MapStore {
+    // --- CORE SVELTE 5 REACTIVE STATE ---
     activeMapId = $state(null);
     catalog = $state([]);
-    updateTrigger = $state(0);
+    updateTrigger = $state(0); // Bumps when DOM UI needs to re-render
     selectedItemIds = $state([]);
     clipboard = $state([]);
     lightingPreview = $state(false);
     activeTool = $state("select");
     draftingMode = $state("straight"); 
     audioBlobs = $state({}); 
-    quadtree = $state(null);
+    quadtree = $state(null); // Spatial index for rapid 2D raycasting/selection
     
     // --- CAD STATUS BAR METRICS ---
     mouseX = $state(0.00);
@@ -67,6 +75,7 @@ class MapStore {
     });
 
     constructor() {
+        // Hydrate from IndexedDB on startup
         loadFromDB('autosave').then(saved => {
             if (saved && saved.catalog && saved.catalog.length > 0) {
                 this.catalog = saved.catalog.map(mapDef => ({
@@ -79,14 +88,21 @@ class MapStore {
             }
         });
 
-        // Initialize the auto-mount sequence for Wails
+        // Initialize the auto-mount sequence for native Wails desktop
         this.initGlobalAssets();
     }
 
     get activeMap() { return this.catalog.find(m => m.id === this.activeMapId) || null; }
+    
+    // Alias to trigger PixiJS re-renders
     get redrawTick() { return this.updateTrigger; }
 
-    // --- HELPER: GET FULL ITEM BY ID ---
+    /**
+     * Resolves a fully populated entity or geometry object from a UUID.
+     * Checks all manifest categories.
+     * @param {string} id - The UUID of the object to find.
+     * @returns {Object|null}
+     */
     getItem(id) {
         if (!this.activeMap) return null;
         const m = this.activeMap.manifest;
@@ -282,6 +298,10 @@ class MapStore {
         this.updateTrigger++;
     }
 
+    /**
+     * Rebuilds the internal QuadTree.
+     * Crucial for O(log n) spatial lookups during Context Menus and Box Selections.
+     */
     updateSpatialIndex() {
         if (!this.activeMap) return;
         const m = this.activeMap.manifest;
@@ -310,7 +330,7 @@ class MapStore {
                 activeMapId: this.activeMapId
             }));
             await saveToDB('autosave', dataToSave);
-        }, 2000);
+        }, 2000); // 2 second debounce
     }
 
     downloadBlob(filename, blob) { downloadBlob(filename, blob); }
@@ -467,7 +487,7 @@ class MapStore {
         }
     }
 
-    // --- HISTORY ENGINE ---
+    // --- HISTORY ENGINE (UNDO/REDO) ---
     initHistory() {
         const activeMap = this.activeMap;
         if (!activeMap) return;
@@ -481,6 +501,10 @@ class MapStore {
         }
     }
 
+    /**
+     * Saves a full deep clone of the current manifest to the history stack.
+     * Prevents deep-clone thrashing via a 1000ms debounce on "Rapid Updates".
+     */
     pushHistory(actionName) {
         const activeMap = this.activeMap;
         if (!activeMap) return;
@@ -491,6 +515,7 @@ class MapStore {
 
         const isRapidUpdate = lastAction && lastAction.actionName === actionName && (now - lastAction.timestamp < 1000);
 
+        // Truncate future history if branching from an undo
         if (!isRapidUpdate) {
             activeMap.history = activeMap.history.slice(0, activeMap.historyIndex + 1);
         }
@@ -503,7 +528,7 @@ class MapStore {
         } else {
             activeMap.history.push({ actionName, timestamp: now, snapshot });
             activeMap.historyIndex++;
-            if (activeMap.history.length > 50) { 
+            if (activeMap.history.length > 50) {  // Maximum 50 undo states per level
                 activeMap.history.shift();
                 activeMap.historyIndex--;
             }
@@ -1204,7 +1229,11 @@ class MapStore {
         }
     }
 
-    // --- ITERATIVE CHAIKIN'S CORNER CUTTING ---
+    /**
+     * ITERATIVE CHAIKIN'S CORNER CUTTING (SubD Modeling)
+     * Mutates sharp vector lines into butter-smooth curves without detaching them from intersections.
+     * Uses a single-pass loop so the user can iteratively subdivide via the UI button.
+     */
     smoothSelectedWalls() {
         const activeMap = this.activeMap;
         if (!activeMap || this.selectedItemIds.length === 0) return;
@@ -1217,17 +1246,17 @@ class MapStore {
                 const newWalls = [...m.geometry.walls];
                 const wall = { ...newWalls[wallIndex] };
                 
-                // Only mathematically valid if there are 3 or more points
+                // Mathematical prerequisite: cannot curve a 2-point straight line
                 if (wall.path && wall.path.length >= 3) {
                     let smoothedPath = wall.path.map(pt => ({ x: Number(pt.x), y: Number(pt.y) }));
                     
-                    // Runs exactly ONE iteration per pass (Subdivision workflow)
+                    // Exactly ONE iteration per invocation
                     const newPath = [];
                     for (let i = 0; i < smoothedPath.length - 1; i++) {
                         const p0 = smoothedPath[i];
                         const p1 = smoothedPath[i + 1];
                         
-                        // Calculate 25% and 75% marks along the straight line
+                        // Calculate 25% and 75% marks along the line segment
                         newPath.push({ x: p0.x * 0.75 + p1.x * 0.25, y: p0.y * 0.75 + p1.y * 0.25 });
                         newPath.push({ x: p0.x * 0.25 + p1.x * 0.75, y: p0.y * 0.25 + p1.y * 0.75 });
                     }
@@ -1403,6 +1432,11 @@ class MapStore {
     }
 
     // --- COMPOUND ASSET MACROS (.UVTT2A) ---
+    
+    /**
+     * Gathers a selected Prop graphic, scans for any overlapping sensory entities (lights/audio/emitters),
+     * mathematically calculates their offset, and streams them out via projectIO into a Zip archive.
+     */
     packCompoundAsset() {
         if (!this.activeMap || this.selectedItemIds.length !== 1) {
             alert("Please select exactly one Prop base to package as a Compound Asset.");
@@ -1463,12 +1497,20 @@ class MapStore {
         this.closeContextMenu();
     }
 
+    /**
+     * Routes an ingested .uvtt2a file to the unpacker and prepares deployment.
+     */
     async loadCompoundAssetFromFile(file, x, y) {
         const data = await importAssetPackage(file);
         if (!data) return;
         this.spawnCompoundAsset(x, y, data.payload, data.extractedAudio);
     }
 
+    /**
+     * Executes the automatic deployment of a compound asset.
+     * Places the base graphic, applies relative offsets to overlapping entities, 
+     * assigns fresh UUIDs, and forcefully syncs to the PixiJS canvas render loops.
+     */
     spawnCompoundAsset(x, y, payload, extractedAudio = {}) {
         const activeMap = this.activeMap;
         if (!activeMap) return;
@@ -1492,7 +1534,7 @@ class MapStore {
         if (!activeMap.manifest.entities.props) activeMap.manifest.entities.props = [];
         activeMap.manifest.entities.props.push(prop);
 
-        // Explode and deploy the sensory arrays
+        // Explode and deploy the sensory arrays based on saved offsets
         if (payload.auto_emits) {
             if (payload.auto_emits.lights) {
                 if (!activeMap.manifest.entities.lights) activeMap.manifest.entities.lights = [];

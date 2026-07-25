@@ -1,12 +1,24 @@
-// --- migrationEngine.js ---
-// Production-grade, high-performance Svelte 5 / esbuild compliant Migration Engine
-// Translates seamlessly across multi-tiered data versions with lossless curve-flattening
+/**
+ * @fileoverview UVTT Schema Migration Engine
+ * Production-grade, high-performance Svelte 5 / esbuild compliant utility class.
+ * Responsible for translating map data across multi-tiered version schemas.
+ * Handles up-sampling legacy formats into the modern master format,
+ * and down-sampling (lossy export) modern maps back into legacy formats with curve-flattening.
+ */
 
 export class UvttMigrationEngine {
-    // Normalizes any incoming data format into the standard UVTT v2 structure
+    /**
+     * Normalizes any incoming data format into the standard UVTT v2 memory structure.
+     * Specifically wraps raw V1 manifests (which lacked outer project metadata) into 
+     * the modern Svelte store wrapper format.
+     * 
+     * @param {Object} rawPayload - The parsed JSON payload from an imported file.
+     * @param {string} determinedVersion - The detected schema version (e.g., "1.0.0", "2.0.0").
+     * @returns {Object} A fully structured V2 master map object.
+     */
     static normalizeToMaster(rawPayload, determinedVersion) {
         if (determinedVersion === "1.0.0") {
-            // Raw V1 is normalized using the standard parser logic
+            // Raw V1 is normalized using the standard parser logic, adding the missing outer envelope
             const filename = rawPayload.filename || "imported_map.dd2vtt";
             return rawPayload.manifest ? rawPayload : {
                 id: rawPayload.id || "map_" + Math.random().toString(36).slice(2, 9),
@@ -17,11 +29,19 @@ export class UvttMigrationEngine {
                 manifest: rawPayload
             };
         }
-        // Already native or close to it
+        // If it's already a modern V2 payload, return it untouched
         return rawPayload;
     }
 
-    // Down-samples the master in-memory structure into legacy format profiles
+    /**
+     * Down-samples the modern V2 master memory structure into legacy format profiles.
+     * WARNING: Exporting to v1.0.0 is a strictly lossy operation. Advanced features 
+     * like Z-axis height, spatial audio, weather emitters, and interactive events are pruned.
+     * 
+     * @param {Object} masterState - The current V2 map object from the state store.
+     * @param {string} targetVersion - The requested export version (e.g., "1.0.0").
+     * @returns {Object} The compiled manifest matching the target legacy schema.
+     */
     static compileToTarget(masterState, targetVersion) {
         const manifest = masterState.manifest || masterState;
 
@@ -34,7 +54,7 @@ export class UvttMigrationEngine {
             const portals = manifest.geometry?.portals || [];
             const lights = manifest.entities?.lights || [];
 
-            // 1. Flatten SVG paths (including Bézier curves) into raw polygonal segments
+            // 1. Flatten SVG paths (including modern smooth Bézier curves) into raw polygonal line segments
             const v1LineOfSight = [];
             walls.forEach(w => {
                 const flattenedPoly = this.flattenSvgPath(w.path);
@@ -55,17 +75,18 @@ export class UvttMigrationEngine {
                 }
             });
 
-            // 3. Compile lights back to flat coordinates and single ranges
+            // 3. Compile lights back to flat coordinates and collapse dual-radii into a single range
             const v1Lights = [];
             lights.forEach(l => {
                 v1Lights.push({
                     position: { x: l.position?.x || 0, y: l.position?.y || 0 },
                     range: l.dim_radius || 10.0,
-                    color: (l.color || "#ffffff").replace(/^#/, '') + "ff"
+                    // Strip the hash and append full opacity hex 'ff' for older renderer standards
+                    color: (l.color || "#ffffff").replace(/^#/, '') + "ff" 
                 });
             });
 
-            // 4. Return standard monolithic V1 format
+            // 4. Return standard monolithic V1 format structure
             return {
                 format: 1,
                 __uvtt_migration_fallback: "Original features (Z-axis, Audio, Weather, Events) pruned during downgrade to v1.0.0",
@@ -85,11 +106,19 @@ export class UvttMigrationEngine {
             };
         }
 
-        // Return native V2 manifest structure
+        // Return native V2 manifest structure if no down-sampling was requested
         return manifest;
     }
 
-    // Mathematical SVG path subdivision using standard parametric equations for cubic Bezier
+    /**
+     * Mathematical SVG path subdivision.
+     * Older 2D rendering engines (like V1 VTTs) cannot natively draw true mathematical curves.
+     * This utility evaluates parametric cubic equations to shatter a continuous Bezier curve 
+     * into a dense array of rigid, straight line segments.
+     * 
+     * @param {Array<Object>} path - Array of V2 SVG path nodes ({type: "move"|"line"|"bezier", x, y, cp1, cp2}).
+     * @returns {Array<Object>} A flattened, continuous array of rigid {x,y} coordinate objects.
+     */
     static flattenSvgPath(path) {
         if (!path || path.length === 0) return [];
         const result = [];
@@ -106,7 +135,7 @@ export class UvttMigrationEngine {
                 currentY = seg.y;
                 result.push({ x: currentX, y: currentY });
             } else if (seg.type === "bezier") {
-                // Parameterized evaluation of cubic curves (10 linear steps)
+                // Parameterized evaluation of cubic curves (Shattered into 10 linear steps)
                 const p0x = currentX;
                 const p0y = currentY;
                 const p1x = seg.cp1?.x || currentX;
@@ -121,12 +150,15 @@ export class UvttMigrationEngine {
                     const t = i / segmentsCount;
                     const mt = 1 - t;
 
-                    // Cubic Bezier curve formula: P(t) = (1-t)^3 * P0 + 3(1-t)^2 * t * P1 + 3(1-t) * t^2 * P2 + t^3 * P3
+                    // Standard Cubic Bezier curve formula
+                    // P(t) = (1-t)^3 * P0 + 3(1-t)^2 * t * P1 + 3(1-t) * t^2 * P2 + t^3 * P3
                     const x = mt * mt * mt * p0x + 3 * mt * mt * t * p1x + 3 * mt * t * t * p2x + t * t * t * p3x;
                     const y = mt * mt * mt * p0y + 3 * mt * mt * t * p1y + 3 * mt * t * t * p2y + t * t * t * p3y;
 
                     result.push({ x, y });
                 }
+                
+                // Update the simulated "cursor" position for the next path segment
                 currentX = p3x;
                 currentY = p3y;
             }

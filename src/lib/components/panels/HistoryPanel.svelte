@@ -1,15 +1,29 @@
+<!-- 
+  @component HistoryPanel
+  Visual interface for the non-linear undo/redo history state machine[cite: 18].
+  Allows the user to view a chronological log of their actions, instantly time-travel 
+  by jumping to specific states in the stack, and clear the history cache to free 
+  up system RAM during heavy sessions[cite: 18].
+-->
 <script>
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
 
+  // --- SVELTE 5 REACTIVE BINDINGS ---[cite: 18]
   let activeMap = $derived(mapStore.activeMap);
 </script>
 
 <div class="panel-section">
   <h3>⏪ ACTION HISTORY</h3>
 
+  <!-- Safely check if the active map has an initialized history stack[cite: 18] -->
   {#if activeMap && activeMap.history && activeMap.history.length > 0}
     <div class="history-list">
       {#each activeMap.history as step, index}
+        <!-- 
+          Dynamic class assignment: 
+          - 'active' highlights the exact current state.
+          - 'future' dims actions that have been undone, showing they will be overwritten if a new action is taken[cite: 18].
+        -->
         <button
           class="history-item {index === activeMap.historyIndex
             ? 'active'
@@ -27,6 +41,10 @@
     <p class="helper-text">No history recorded yet.</p>
   {/if}
 
+  <!-- 
+    Memory Management Utility:
+    Deep-copying massive manifest JSONs for history takes RAM. This allows users to flush it[cite: 18].
+  -->
   <button
     class="action-btn"
     style="justify-content: center; color: #f87171; border-color: rgba(248, 113, 113, 0.3); margin-top: 8px;"

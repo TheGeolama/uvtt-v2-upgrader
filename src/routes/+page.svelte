@@ -1,3 +1,10 @@
+<!-- 
+  @component RootPage
+  The master SvelteKit orchestrator and primary application view[cite: 17].
+  Acts as a state-machine that manages the user's journey from initial Server-Side Rendering (SSR) load, 
+  to the Client-Side WebGPU initialization, to the File Uploader landing screen, and finally into the 
+  active Canvas Workspace[cite: 17]. Also responsible for mounting top-level global UI overlays[cite: 17].
+-->
 <script>
   import { onMount } from "svelte";
   import Uploader from "$components/Uploader.svelte";
@@ -8,11 +15,18 @@
   import { mapStore } from "$stores/mapStore.svelte.js";
   import { browser } from "$app/environment";
 
-  // Svelte 5 Runes for reactive state & derived conditions
+  // --- SVELTE 5 RUNES: REACTIVE STATE & DERIVED CONDITIONS ---[cite: 17]
+
+  /** @type {boolean} Prevents browser-specific APIs (like WebGPU/PixiJS) from executing during SSR[cite: 17]. */
   let isClient = $state(false);
+
+  /** @type {boolean} Determines if the user has successfully imported a map or project[cite: 17]. */
   let isLoaded = $derived(mapStore.catalog && mapStore.catalog.length > 0);
 
-  // Svelte 5 $effect Rune handles client-side lifecycle safely
+  /**
+   * Svelte 5 $effect Rune handles client-side lifecycle safely[cite: 17].
+   * Executes immediately once the component mounts in the user's browser, bypassing the Node.js SSR phase[cite: 17].
+   */
   $effect(() => {
     if (browser) {
       isClient = true;
@@ -24,13 +38,18 @@
 </script>
 
 <main class="app-container">
+  <!-- VIEW STATE 1: SSR / WebGPU Boot Phase[cite: 17] -->
   {#if !isClient}
     <div class="ssr-loader">
       <div class="spinner"></div>
       <p>INITIALIZING WEBGPU PIPELINE...</p>
     </div>
+
+    <!-- VIEW STATE 2: Landing Page / File Ingestion[cite: 17] -->
   {:else if !isLoaded}
     <Uploader />
+
+    <!-- VIEW STATE 3: Active Map Editing Interface[cite: 17] -->
   {:else}
     <div class="workspace-wrapper">
       <CanvasWorkspace />
@@ -38,6 +57,7 @@
     </div>
   {/if}
 
+  <!-- GLOBAL UI OVERLAYS: Always mounted once the client is ready[cite: 17] -->
   {#if isClient}
     <LoadingOverlay />
     <ToastManager />
@@ -45,6 +65,10 @@
 </main>
 
 <style>
+  /* 
+    Global CSS Resets.
+    Ensures the VTT consumes the entire browser viewport without scrollbars or margins[cite: 17].
+  */
   :global(html, body) {
     margin: 0;
     padding: 0;
@@ -73,10 +97,12 @@
     display: flex;
     flex-direction: column;
     background-color: #0f172a;
+    /* Prevents accidental text highlighting while dragging canvas elements[cite: 17] */
     user-select: none;
     -webkit-user-select: none;
   }
 
+  /* SSR Loader Styles[cite: 17] */
   .ssr-loader {
     display: flex;
     flex-direction: column;

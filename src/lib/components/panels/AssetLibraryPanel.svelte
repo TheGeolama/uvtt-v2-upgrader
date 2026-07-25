@@ -1,6 +1,18 @@
+<!-- 
+  @component AssetLibraryPanel
+  The Desktop-native Local Asset Library UI[cite: 19].
+  Allows Pro users running the Wails/Go desktop application to securely mount 
+  entire hard drive directories (gigabytes of tokens/audio) directly into memory 
+  without traditional browser upload limits[cite: 19]. 
+  Includes dynamic genre parsing, text search, and a high-performance drag-and-drop payload bypass[cite: 19].
+-->
 <script>
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
 
+  /**
+   * @type {boolean} Evaluates true if the app is running in the Wails Desktop environment
+   * by checking for the injected Go backend bindings[cite: 19].
+   */
   let isDesktopPro = $derived(
     typeof window !== "undefined" && !!window?.go?.main,
   );
@@ -9,7 +21,10 @@
   let selectedGenre = $state("All");
   let searchQuery = $state("");
 
-  // Dynamically extract unique top-level folders (Genres) from the loaded assets
+  /**
+   * Dynamically extracts unique top-level folders (Genres) from the loaded assets[cite: 19].
+   * Normalizes paths, finds the common root directory, and extracts the first meaningful sub-folder name[cite: 19].
+   */
   let availableGenres = $derived.by(() => {
     const genres = new Set();
     const allAssets = [
@@ -19,12 +34,12 @@
 
     if (allAssets.length === 0) return [];
 
-    // Normalize paths to forward slashes
+    // Normalize Windows backslashes to standard forward slashes[cite: 19]
     const paths = allAssets.map((a) =>
       (a.path || a.name || "").replace(/\\/g, "/"),
     );
 
-    // Find the common root directory across ALL loaded assets
+    // Find the absolute common root directory across ALL loaded assets to strip it out[cite: 19]
     const splitPaths = paths.map((p) => p.split("/"));
     let common = [];
     for (let i = 0; i < splitPaths[0].length - 1; i++) {
@@ -37,23 +52,24 @@
     }
     const prefix = common.join("/") + (common.length > 0 ? "/" : "");
 
-    // Known top-level asset directories (so we don't accidentally list 'Props' as a genre)
+    // Known top-level asset directories (prevents accidentally listing 'Props' as a genre)[cite: 19]
     const rootFolders = ["Audio", "Maps", "Props", "Tokens"];
 
     allAssets.forEach((item) => {
       const fullPath = (item.path || item.name || "").replace(/\\/g, "/");
-      // Strip the absolute root path to get the relative folder structure
+
+      // Strip the absolute root path to get the relative folder structure[cite: 19]
       const relativePath = fullPath.startsWith(prefix)
         ? fullPath.slice(prefix.length)
         : fullPath;
       const parts = relativePath.split("/");
 
       if (parts.length > 1) {
-        // If the first folder is an asset category, the Genre is the NEXT folder
+        // If the first folder is a system category, the true 'Genre' is the NEXT nested folder[cite: 19]
         if (rootFolders.includes(parts[0]) && parts.length > 2) {
           genres.add(parts[1]);
         } else {
-          // Otherwise, treat the first relative folder as the Genre
+          // Otherwise, treat the first relative folder as the Genre[cite: 19]
           genres.add(parts[0]);
         }
       }
@@ -62,7 +78,7 @@
     return Array.from(genres).sort();
   });
 
-  // Reset the dropdown if the user mounts a new folder that doesn't have the currently selected genre
+  // Reset the dropdown if the user mounts a new folder that doesn't have the currently selected genre[cite: 19]
   $effect(() => {
     if (
       selectedGenre !== "All" &&
@@ -74,6 +90,8 @@
   });
 
   // --- FILTERED ASSET ARRAYS ---
+
+  /** @type {Array<Object>} Audio assets filtered by active Genre and Search input[cite: 19]. */
   let filteredAudio = $derived(
     (mapStore.globalAssets?.audio || []).filter((a) => {
       const normalized = (a.path || a.name || "").replace(/\\/g, "/");
@@ -86,6 +104,7 @@
     }),
   );
 
+  /** @type {Array<Object>} Image assets filtered by active Genre and Search input[cite: 19]. */
   let filteredImages = $derived(
     (mapStore.globalAssets?.images || []).filter((img) => {
       const normalized = (img.path || img.name || "").replace(/\\/g, "/");
@@ -100,15 +119,16 @@
 </script>
 
 <div class="panel-section">
-  <h3>📂 LOCAL ASSET LIBRARY</h3>
+  <h3>📁 LOCAL ASSET LIBRARY</h3>
 
+  <!-- DESKTOP PRO UI -->
   {#if isDesktopPro}
     <div style="display: flex; gap: 8px;">
       <button
         class="action-btn wave"
         onclick={() => mapStore.mountAssetLibrary()}
       >
-        📁 Mount Local Folder
+        📂 Mount Local Folder
       </button>
 
       {#if mapStore.globalAssets?.images?.length > 0 || mapStore.globalAssets?.audio?.length > 0}
@@ -152,7 +172,7 @@
       </div>
     {/if}
 
-    <!-- ASSET LISTS -->
+    <!-- AUDIO ASSET LIST -->
     {#if filteredAudio.length > 0}
       <div style="margin-top: 15px;">
         <span style="font-size: 10px; font-weight: bold; color: #00f0ff;"
@@ -173,6 +193,7 @@
       </div>
     {/if}
 
+    <!-- IMAGE/PROP ASSET GRID -->
     {#if filteredImages.length > 0}
       <div style="margin-top: 15px;">
         <span style="font-size: 10px; font-weight: bold; color: #00f0ff;"
@@ -192,22 +213,25 @@
               title={img.name || img.path}
               draggable="true"
               ondragstart={(e) => {
-                // 1. Bypass HTML5 payload limits by storing in window memory
+                // 1. Memory Bypass: The HTML5 Drag-and-Drop API often crashes or restricts
+                // massive Base64 strings. Instead of attaching the data to the event, we store
+                // a direct memory reference in the global window object[cite: 19].
                 window.__uvttDraggedAsset = {
                   type: "asset_prop",
                   image: img.data,
                   name: filename,
-                  // Capture the native pixel dimensions directly from the DOM image
+                  // Capture the native pixel dimensions directly from the DOM image to auto-scale on canvas drop[cite: 19]
                   naturalWidth: e.target.naturalWidth,
                   naturalHeight: e.target.naturalHeight,
                 };
 
-                // 2. We still must set some data to satisfy the HTML5 Drag-and-Drop API rules
+                // 2. We still MUST set dummy data to satisfy the browser's native API rules,
+                // otherwise the drag event is aborted entirely[cite: 19].
                 e.dataTransfer.setData("text/plain", "uvtt_internal_asset");
                 e.dataTransfer.effectAllowed = "copy";
               }}
               ondragend={() => {
-                // Clean up memory when the drag finishes (or drops)
+                // Clean up memory to prevent leaks when the drag finishes or cancels[cite: 19]
                 window.__uvttDraggedAsset = null;
               }}
               style="width: 48px; height: 48px; object-fit: cover; border: 1px solid #334155; border-radius: 4px; cursor: grab;"
@@ -225,12 +249,14 @@
         No assets matched your search.
       </p>
     {/if}
+
+    <!-- WEB/BROWSER FALLBACK UI -->
   {:else}
     <button
       class="action-btn secure"
       style="cursor: not-allowed; opacity: 0.8; font-weight: bold;"
     >
-      ⭐ Upgrade to Pro
+      🔒 Upgrade to Pro
     </button>
     <p class="helper-text" style="margin-top: 12px;">
       The Global Asset Library requires unrestricted local file system access.

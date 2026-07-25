@@ -1,3 +1,10 @@
+<!-- 
+  @component Toolbar
+  The primary Heads-Up Display (HUD) for the VTT engine[cite: 14].
+  Orchestrates all user interaction via floating panels: the top level-navigation bar, 
+  the left contextual tool palette, the right global settings panel, and the bottom CAD status bar[cite: 14].
+  Highly reactive, subscribing to the Svelte 5 `mapStore` to dynamically update UI state[cite: 14].
+-->
 <script>
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
   import { upgradeLegacyMap } from "$lib/utils/legacyParser.js";
@@ -10,6 +17,8 @@
   import EntityPanel from "$lib/components/panels/EntityPanel.svelte";
   import HistoryPanel from "$lib/components/panels/HistoryPanel.svelte";
 
+  // --- SVELTE 5 REACTIVE DERIVATIONS ---
+  // Subscribes to the mapStore to keep the UI perfectly synced with the engine state[cite: 14]
   let activeMap = $derived(mapStore.activeMap);
   let catalog = $derived(mapStore.catalog);
   let activeTool = $derived(mapStore.activeTool);
@@ -21,6 +30,10 @@
   let mouseY = $derived(mapStore.mouseY);
   let zoomScale = $derived(mapStore.zoomScale);
 
+  /**
+   * Dynamically generates the HTML for the bottom status bar based on the currently active tool[cite: 14].
+   * Teaches the user the hidden keyboard shortcuts without requiring a manual[cite: 14].
+   */
   let hotkeyHint = $derived.by(() => {
     if (visionEnabled) {
       return "🎭 <span style='color: #4ade80; font-weight: bold;'>PLAYER PREVIEW ACTIVE</span> <span class='sep'>|</span> <span class='key'>Left-Click & Drag:</span> Move Vision Token <span class='sep'>|</span> <span class='key'>Space+Drag:</span> Pan Camera";
@@ -46,7 +59,13 @@
     }
   });
 
+  // --- SELECTION RESOLUTION ENGINE ---
   let selectedItemIds = $derived(mapStore.selectedItemIds);
+
+  /**
+   * Maps raw selected UUIDs into fully hydrated object references by scanning
+   * the map manifest. Injects the item's `category` so the UI knows which config panel to render[cite: 14].
+   */
   let selectedItems = $derived(
     selectedItemIds
       .map((id) => {
@@ -82,14 +101,27 @@
       .filter(Boolean),
   );
 
+  /**
+   * Determines which property panel to render. Defaults to the active tool if nothing is selected,
+   * otherwise switches to the category of the first selected item[cite: 14].
+   */
   let displayCategory = $derived(
     selectedItems.length > 0 ? selectedItems[0].category : activeTool,
   );
 
+  /**
+   * Dispatches a tool change to the mapStore[cite: 14].
+   * @param {string} tool - The internal tool identifier (e.g., 'wall', 'select').
+   */
   function selectTool(tool) {
     mapStore.setTool(tool);
   }
 
+  /**
+   * Intercepts file uploads from the hidden input button in the Top Nav Bar.
+   * Routes raw images to the DPI extraction pipeline, and parses legacy schemas[cite: 14].
+   * @param {Event} e - The HTML change event.
+   */
   async function handleImportLevel(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -108,11 +140,15 @@
         alert("Failed to import level");
       }
     }
+    // Reset the input so the same file can be imported again if needed[cite: 14]
     e.target.value = null;
   }
 </script>
 
 {#if activeMap}
+  <!-- ========================================== -->
+  <!-- TOP LEVEL NAVIGATION BAR -->
+  <!-- ========================================== -->
   <div class="level-nav-bar">
     <div class="level-controls">
       <span class="icon" title="Compound Dungeon">🌍</span>
@@ -135,6 +171,7 @@
 
       <div class="divider"></div>
 
+      <!-- History Engine Hooks (Undo/Redo)[cite: 14] -->
       <button
         class="icon-btn"
         disabled={!activeMap.history || activeMap.historyIndex <= 0}
@@ -187,6 +224,9 @@
     </div>
   </div>
 
+  <!-- ========================================== -->
+  <!-- LEFT TOOLBAR & CONTEXT PROPERTIES PANEL -->
+  <!-- ========================================== -->
   <div class="toolbar-wrapper">
     <div class="tool-selector">
       <div class="tool-group">
@@ -297,6 +337,7 @@
     </div>
 
     <div class="properties-panel">
+      <!-- Universal Clipboard Actions -->
       {#if mapStore.selectedItemIds.length > 0 || mapStore.clipboard.length > 0}
         <div
           class="panel-section"
@@ -347,6 +388,7 @@
         </div>
       {/if}
 
+      <!-- Universal Visibility Override Block[cite: 14] -->
       {#if mapStore.selectedItemIds.length > 0}
         <div
           class="panel-section"
@@ -381,6 +423,7 @@
         </div>
       {/if}
 
+      <!-- Dynamic Sub-Panel Injection Router[cite: 14] -->
       {#if displayCategory === "select"}
         {#if selectedItems.length === 0}
           <div class="panel-section">
@@ -399,6 +442,7 @@
         <div class="panel-section">
           <h3>📝 {displayCategory.toUpperCase()} CONFIG</h3>
 
+          <!-- UI State indication: Are we editing an existing item, or updating the brush defaults? -->
           {#if selectedItems.length === 0 && displayCategory !== "prop"}
             <div class="status-indicator editing-defaults">
               <span>✏️ Configuring Defaults for New {displayCategory}s</span>
@@ -414,6 +458,7 @@
             </div>
           {/if}
 
+          <!-- Component Injection -->
           {#if ["wall", "portal", "roof"].includes(displayCategory)}
             <GeometryPanel />
             <div
@@ -440,6 +485,7 @@
             <EntityPanel />
           {/if}
 
+          <!-- Quick Actions Footer -->
           {#if selectedItems.length > 0}
             <div style="display: flex; gap: 8px; margin-top: 10px;">
               {#if ["wall", "portal"].includes(displayCategory)}
@@ -469,12 +515,18 @@
     </div>
   </div>
 
+  <!-- ========================================== -->
+  <!-- RIGHT GLOBAL SETTINGS PANEL -->
+  <!-- ========================================== -->
   <div class="global-panel-right">
     <FileExportPanel />
     <HistoryPanel />
     <MapSettingsPanel />
   </div>
 
+  <!-- ========================================== -->
+  <!-- BOTTOM CAD STATUS BAR -->
+  <!-- ========================================== -->
   <div class="status-bar">
     <div class="status-segment coord-readout">X: {mouseX} | Y: {mouseY}</div>
     <div class="status-segment zoom-readout">Zoom: {zoomScale}%</div>

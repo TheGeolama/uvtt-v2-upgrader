@@ -1,6 +1,21 @@
+<!-- 
+  @component GeometryPanel
+  Handles the Sidebar UI configuration for map geometry tools (Walls, Portals, Roofs).
+  Provides dynamic control inputs based on the currently selected item or the default 
+  tool settings if nothing is selected.
+-->
 <script>
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
 
+  /**
+   * Universal dispatcher for applying property updates.
+   * If items are actively selected on the canvas, the change is applied to all of them.
+   * If nothing is selected, the change updates the "future default" for the active tool.
+   *
+   * @param {string} category - "wall", "portal", or "roof"
+   * @param {string} keyPath - Dot notation path for nested objects (e.g. "properties.bottom")
+   * @param {any} value - The new value to apply
+   */
   function handlePropChange(category, keyPath, value) {
     if (mapStore.selectedItemIds.length > 0) {
       mapStore.selectedItemIds.forEach((id) =>
@@ -11,9 +26,15 @@
     }
   }
 
+  /**
+   * Scans the mapStore to determine what UI context should be rendered.
+   * Returns an object { cat: string, data: object } containing the item properties.
+   */
   function getSelectionContext() {
     const ids = mapStore.selectedItemIds;
     const tool = mapStore.activeTool;
+
+    // Fallback to default tool settings if canvas is empty
     if (!ids || ids.length === 0)
       return { cat: tool, data: mapStore.defaultSettings[tool] || {} };
 
@@ -32,6 +53,7 @@
     return { cat: tool, data: mapStore.defaultSettings[tool] || {} };
   }
 
+  // Reactive derivations bound to the mapStore trigger
   let ctx = $derived.by(() => {
     let _ = mapStore.updateTrigger;
     return getSelectionContext();
@@ -46,7 +68,11 @@
   {@const pointCount = activeConf.path ? activeConf.path.length : 0}
   {@const canSmooth = pointCount >= 3}
 
-  <!-- ITERATIVE BEZIER ACTION BUTTON -->
+  <!-- 
+    ITERATIVE BEZIER ACTION BUTTON 
+    Functions identically to a 3D Subdivision Surface tool (SubD). 
+    Clicking it recursively runs Chaikin's corner-cutting algorithm via mapStore.smoothSelectedWalls().
+  -->
   <div
     style="margin-bottom: 12px; background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.2); padding: 10px; border-radius: 6px; display: flex; flex-direction: column; gap: 8px;"
   >

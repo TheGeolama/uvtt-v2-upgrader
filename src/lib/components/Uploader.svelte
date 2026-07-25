@@ -1,11 +1,27 @@
+<!-- 
+  @component Uploader
+  The initial landing screen and global file dropzone[cite: 15].
+  Acts as the primary ingestion router for the application, intercepting dropped 
+  files and routing them to either the Project Loader (for .zip/.uvtt-proj archives) 
+  or the Legacy Parser (for older .dd2vtt or .uvtt formats)[cite: 15].
+-->
 <script>
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
   import { upgradeLegacyMap } from "$lib/utils/legacyParser.js";
   import { uiStore } from "$lib/stores/uiStore.svelte.js";
 
+  /** @type {HTMLInputElement} Reference to the hidden file input element[cite: 15]. */
   let fileInput;
+
+  /** @type {boolean} Tracks drag state to trigger CSS visual feedback[cite: 15]. */
   let isDragging = $state(false);
 
+  /**
+   * Core ingestion router. Iterates over dropped/selected files and determines
+   * how the mapStore should process them based on their file extension[cite: 15].
+   *
+   * @param {File[]} files - Array of HTML5 File objects provided by the drop/input event[cite: 15].
+   */
   async function handleFiles(files) {
     if (!files || files.length === 0) return;
 
@@ -16,17 +32,18 @@
       const fileName = file.name.toLowerCase();
 
       try {
-        // 1. Intercept our new Secure Archives and Project files
+        // 1. Intercept Secure Archives and Native Project files[cite: 15]
         if (fileName.endsWith(".zip") || fileName.endsWith(".uvtt-proj")) {
+          // Loading a full project overwrites the entire store, so we execute it and halt the loop[cite: 15]
           await mapStore.loadProjectFromFile(file);
           projectLoaded = true;
           uiStore.addToast(
             `Successfully loaded project: ${file.name}`,
             "success",
           );
-          break; // A project/zip overwrites the store, so we stop parsing other files
+          break;
         }
-        // 2. Route standard legacy files to the parser
+        // 2. Route standard legacy files to the parser[cite: 15]
         else {
           const text = await file.text();
           const parsedMap = upgradeLegacyMap(text, file.name);
@@ -38,7 +55,7 @@
       }
     }
 
-    // Only set the catalog if we parsed individual legacy maps and didn't load a full project
+    // Only set the catalog if we parsed individual legacy maps and didn't load a full project[cite: 15]
     if (!projectLoaded && parsedMaps.length > 0) {
       mapStore.setCatalog(parsedMaps);
       uiStore.addToast(
@@ -46,22 +63,28 @@
         "success",
       );
     } else if (!projectLoaded && parsedMaps.length === 0) {
+      // Graceful error handling for unsupported file types[cite: 15]
       uiStore.addToast(
         "Failed to parse map files. Ensure they are valid .dd2vtt, .uvtt, or .zip files.",
         "error",
       );
     }
 
+    // Reset the input so the user can re-select the same file later if needed[cite: 15]
     if (fileInput) fileInput.value = "";
   }
 
+  /** Delegate for the manual file browser button[cite: 15]. */
   function onFileChange(event) {
     handleFiles(Array.from(event.target.files));
   }
 
+  /** Intercepts files dropped directly onto the window[cite: 15]. */
   function onDrop(event) {
     event.preventDefault();
     isDragging = false;
+
+    // Modern DataTransferItemList API support with a fallback for older browsers[cite: 15]
     if (event.dataTransfer.items) {
       const files = Array.from(event.dataTransfer.items)
         .filter((item) => item.kind === "file")
@@ -72,11 +95,13 @@
     }
   }
 
+  /** Activates the glowing CSS border when dragging a file over the window[cite: 15]. */
   function onDragOver(event) {
     event.preventDefault();
     isDragging = true;
   }
 
+  /** Deactivates the dragging CSS state[cite: 15]. */
   function onDragLeave(event) {
     event.preventDefault();
     isDragging = false;

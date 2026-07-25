@@ -1,13 +1,32 @@
 /**
- * Utility module for platform-specific VTT exports and strict UVTT v2 compliance.
- * Translates internal V2 Manifest schema into proprietary formats and formal archives.
+ * @fileoverview Platform-Specific VTT Exporters and UVTT v2 Archive Compiler
+ * Translates internal normalized Svelte store models into third-party proprietary 
+ * formats (Foundry VTT, Roll20, Fantasy Grounds) and formal, multi-level UVTT v2 zip packages.
  */
 
 import JSZip from 'jszip';
 
+/**
+ * Sanitizes UUID strings into valid identifiers for external VTT engines by replacing hyphens with underscores.
+ * @param {string} id - The raw UUID string.
+ * @returns {string} The sanitized ID.
+ */
 const sanitizeId = (id) => id.replace(/-/g, '_');
+
+/**
+ * Converts human-readable map names into clean, lowercase slug strings for archive folder structures.
+ * @param {string} str - The raw title string.
+ * @returns {string} The URL-safe slug string.
+ */
 const slugify = (str) => (str || "unnamed-map").toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
+/**
+ * Converts a normalized VTT manifest into a Foundry VTT compatible Scene schema.
+ * Maps custom walls, portals, lights, tokens, tiles, and event drawings directly into Foundry's data architecture.
+ * 
+ * @param {Object} manifest - The normalized map manifest.
+ * @returns {Object} A Foundry VTT scene configuration object.
+ */
 export function exportToFoundryVTT(manifest) {
     const gridSize = manifest.resolution?.pixels_per_grid || 70;
     
@@ -31,11 +50,11 @@ export function exportToFoundryVTT(manifest) {
         }
     };
 
-    // Foundry Walls & Portals
+    // Foundry Walls & Portals Processing
     const processGeometry = (items, type, sense, sound) => {
         (items || []).forEach(item => {
             if (!item.path || item.path.length < 2) return;
-            // Foundry processes walls as individual line segments, not continuous paths
+            // Foundry processes walls as discrete linear segment pairs, not continuous chains
             for (let i = 0; i < item.path.length - 1; i++) {
                 scene.walls.push({
                     _id: sanitizeId(item.id) + `_${i}`,
@@ -45,7 +64,7 @@ export function exportToFoundryVTT(manifest) {
                         item.path[i + 1].x * gridSize,
                         item.path[i + 1].y * gridSize
                     ],
-                    light: type === "window" ? 0 : 20, // 20 blocks light, 0 allows it to pass
+                    light: type === "window" ? 0 : 20, // 20 blocks light, 0 allows it to pass through
                     sight: sense,
                     sound: sound,
                     door: type === "door" || type === "secret" ? 1 : 0,
@@ -58,7 +77,7 @@ export function exportToFoundryVTT(manifest) {
     processGeometry(manifest.geometry?.walls, "wall", 20, 20);
     processGeometry(manifest.geometry?.portals, "door", 20, 20);
 
-    // Foundry Lights 
+    // Foundry Lights Integration
     (manifest.entities?.lights || []).forEach(l => {
         const isHidden = l.properties?.visibility === 'gm_only' || l.properties?.visibility === 'hidden';
         scene.lights.push({
@@ -88,7 +107,7 @@ export function exportToFoundryVTT(manifest) {
         });
     });
 
-    // Foundry Tiles (Props)
+    // Foundry Tiles (Props & Asset Graphics)
     (manifest.entities?.props || []).forEach(prop => {
         const isHidden = prop.properties?.visibility === 'gm_only' || prop.properties?.visibility === 'hidden';
         const width = (Number(prop.scale) / 100) * gridSize;
@@ -105,7 +124,7 @@ export function exportToFoundryVTT(manifest) {
         });
     });
 
-    // Foundry Drawings (Events and Smart States)
+    // Foundry Drawings (Triggers, Events, and Smart States)
     (manifest.entities?.events || []).forEach(evt => {
         const wPx = (Number(evt.trigger_bounds?.width) || 1) * gridSize;
         const hPx = (Number(evt.trigger_bounds?.height) || 1) * gridSize;
@@ -136,6 +155,13 @@ export function exportToFoundryVTT(manifest) {
     return scene;
 }
 
+/**
+ * Converts a normalized VTT manifest into Roll20 compatible JSON format.
+ * Formats vector walls into SVG path strings and maps lighting/props to graphic tokens.
+ * 
+ * @param {Object} manifest - The normalized map manifest.
+ * @returns {Object} Roll20 compatible export payload.
+ */
 export function exportToRoll20(manifest) {
     const gridSize = manifest.resolution?.pixels_per_grid || 70;
     const toPx = (val) => val * gridSize;
@@ -150,7 +176,7 @@ export function exportToRoll20(manifest) {
         objects: []
     };
 
-    // Roll20 Dynamic Lighting Walls 
+    // Roll20 Dynamic Lighting Paths Conversion
     const processRoll20Paths = (items, color, strokeWidth) => {
         (items || []).forEach(item => {
             if (!item.path || item.path.length < 2) return;
@@ -174,7 +200,7 @@ export function exportToRoll20(manifest) {
     processRoll20Paths(manifest.geometry?.walls, "#0000ff", 3);
     processRoll20Paths(manifest.geometry?.portals, "#ff9900", 5);
 
-    // Roll20 Lights 
+    // Roll20 Light Sources
     (manifest.entities?.lights || []).forEach(l => {
         roll20Data.objects.push({
             type: "graphic",
@@ -192,7 +218,7 @@ export function exportToRoll20(manifest) {
         });
     });
 
-    // Roll20 Spawns 
+    // Roll20 Spawns
     (manifest.entities?.landing_zones || []).forEach(lz => {
         roll20Data.objects.push({
             type: "graphic",
@@ -206,7 +232,7 @@ export function exportToRoll20(manifest) {
         });
     });
 
-    // Roll20 Props
+    // Roll20 Props (Asset placement)
     (manifest.entities?.props || []).forEach(prop => {
         const isGMOnly = prop.properties?.visibility === 'gm_only' || prop.properties?.visibility === 'hidden';
         const width = (Number(prop.scale) / 100) * gridSize;
@@ -224,7 +250,7 @@ export function exportToRoll20(manifest) {
         });
     });
 
-    // Roll20 Events (Sized as precise rectangular trigger zones)
+    // Roll20 Events (Trigger zones mapped as GM layer regions)
     (manifest.entities?.events || []).forEach(evt => {
         const cx = toPx(evt.trigger_bounds?.center?.x || 0);
         const cy = toPx(evt.trigger_bounds?.center?.y || 0);
@@ -251,6 +277,12 @@ export function exportToRoll20(manifest) {
     return roll20Data;
 }
 
+/**
+ * Converts a normalized VTT manifest into Fantasy Grounds Line-of-Sight (Occluders) schema.
+ * 
+ * @param {Object} manifest - The normalized map manifest.
+ * @returns {Object} Fantasy Grounds compatible map payload.
+ */
 export function exportToFantasyGrounds(manifest) {
     const gridSize = manifest.resolution?.pixels_per_grid || 70;
     
@@ -264,7 +296,7 @@ export function exportToFantasyGrounds(manifest) {
         }
     };
 
-    // Fantasy Grounds Line of Sight (Occluders)
+    // Fantasy Grounds Line of Sight (Occluders Processing)
     const processFGOccluders = (items, type) => {
         (items || []).forEach(item => {
             if (!item.path || item.path.length < 2) return;
@@ -284,6 +316,14 @@ export function exportToFantasyGrounds(manifest) {
     return fgData;
 }
 
+/**
+ * Multi-platform packaging wrapper that delegates to specific VTT serializers.
+ * 
+ * @param {string} platform - Target platform key ('foundry', 'roll20', 'fg')
+ * @param {Object} manifest - Normalized map manifest
+ * @param {Blob} imageBlob - Background map image binary
+ * @returns {Promise<Object>} An object containing the generated filename and stringified JSON payload.
+ */
 export async function packageForPlatform(platform, manifest, imageBlob) {
     let payload;
     switch(platform) {
@@ -307,20 +347,26 @@ export async function packageForPlatform(platform, manifest, imageBlob) {
 }
 
 /**
- * FULL UVTT V2 COMPILE PIPELINE
- * Dynamically converts the In-Memory Normalized Model into the strict, official schemas.
+ * FULL UVTT V2 COMPILE PIPELINE (Archive Generator)
+ * Dynamically converts the In-Memory Normalized Model into the strict, official 
+ * Draft-07 Universal VTT package specifications (`geometry.json`, `entities.json`, 
+ * `manifest.json`, audio assets, and a cryptographic SHA-256 `manifest.hash` receipt).
+ * 
+ * @param {Array} catalog - Array of map level objects.
+ * @param {Object} audioBlobs - Dictionary of audio binary files indexed by track name.
+ * @returns {Promise<Blob>} A fully assembled JSZip campaign archive blob.
  */
 export async function buildUVTT2Archive(catalog, audioBlobs = {}) {
     const zip = new JSZip();
     const mapCatalogIndex = [];
 
-    // Loop through the catalog to build map files
+    // Loop through the catalog to build independent map directory structures
     for (let i = 0; i < catalog.length; i++) {
         const mapDef = catalog[i];
         const m = mapDef.manifest;
         const slug = slugify(mapDef.filename) || `map-${i}`;
 
-        // Add to Global Manifest Index
+        // Add level entry to the Global Manifest Index
         mapCatalogIndex.push({
             id: mapDef.id,
             name: mapDef.filename,
@@ -359,7 +405,7 @@ export async function buildUVTT2Archive(catalog, audioBlobs = {}) {
             geometryPayload.geometry.walls.push({
                 id: w.id,
                 type: w.properties?.type || "standard",
-                height: { bottom: w.properties?.bottom ?? 0.0, top: w.properties?.top ?? 10.0 }, // 3D Compliance
+                height: { bottom: w.properties?.bottom ?? 0.0, top: w.properties?.top ?? 10.0 }, 
                 directional_blocks: {
                     left_to_right: ["light", "sight", "movement"], 
                     right_to_left: ["light", "sight", "movement"]
@@ -371,7 +417,6 @@ export async function buildUVTT2Archive(catalog, audioBlobs = {}) {
 
         (m.geometry?.portals || []).forEach(p => {
             if (!p.path || p.path.length < 2) return;
-            // Map our 'secret' enum to the strict 'secret_door'
             const officialType = p.properties?.type === "secret" ? "secret_door" : (p.properties?.type || "door");
             
             geometryPayload.geometry.portals.push({
@@ -408,7 +453,7 @@ export async function buildUVTT2Archive(catalog, audioBlobs = {}) {
             events: [],
             audio: { zones: [] },
             emitters: [],
-            props: [] // FIX: Ensured props array exists for the archive
+            props: [] 
         };
 
         (m.entities?.lights || []).forEach(l => {
@@ -440,7 +485,7 @@ export async function buildUVTT2Archive(catalog, audioBlobs = {}) {
                 name: lz.name || "Spawn Point",
                 is_default: lz.is_default || false,
                 coordinates: [lz.coordinates[0], lz.coordinates[1]],
-                heading_degrees: lz.heading_degrees ?? 0.0, // Forced compliance
+                heading_degrees: lz.heading_degrees ?? 0.0,
                 properties: { description: "", camera_zoom_level: 1.0 }
             });
         });
@@ -463,7 +508,7 @@ export async function buildUVTT2Archive(catalog, audioBlobs = {}) {
                 }
             };
 
-            // URI Topological Routing Math
+            // URI Topological Routing Math for Inter-Map Portals
             if (isTeleport) {
                 let destType = "intra_map";
                 let targetSlug = slug;
@@ -495,11 +540,11 @@ export async function buildUVTT2Archive(catalog, audioBlobs = {}) {
                 id: az.id,
                 shape: "circle",
                 center: { x: az.center.x, y: az.center.y },
-                radius: az.inner_radius || 2.5,     // Engine inner maps to spec core radius
-                fade_radius: az.radius || 5.0,      // Engine max fade maps to spec fade_radius
+                radius: az.inner_radius || 2.5,     
+                fade_radius: az.radius || 5.0,      
                 volume_max: (az.volume || 100) / 100.0,
                 audio_uri: az.track ? `assets/audio/${az.track}` : "",
-                muffled_by_geometry: az.muffledByWalls ?? true // Spec Patch: Acoustic Occlusion
+                muffled_by_geometry: az.muffledByWalls ?? true 
             });
         });
 
@@ -507,25 +552,23 @@ export async function buildUVTT2Archive(catalog, audioBlobs = {}) {
             const emitterObj = {
                 id: em.id,
                 type: em.type === "weather" ? (em.style || "rain") : em.type,
-                is_global: em.isGlobal || false, // Spec Patch: Global Overrides
+                is_global: em.isGlobal || false, 
                 properties: {
                     intensity: (em.intensity || 50) / 100.0,
                     speed: em.speed || 50.0,
                     angle: em.direction || 180.0,
                     color: em.tint || "#ffffff",
-                    render_layer: em.layering === "above" ? "above_overhead" : "below_overhead" // Spec Patch: Z-Index Layering
+                    render_layer: em.layering === "above" ? "above_overhead" : "below_overhead" 
                 }
             };
             
-            // If it isn't global, we supply the mandatory bounds
             if (!em.isGlobal) {
-                emitterObj.bounds = { shape: "circle", points: [] }; // simplified bounding box
+                emitterObj.bounds = { shape: "circle", points: [] }; 
             }
             
             entitiesPayload.emitters.push(emitterObj);
         });
 
-        // FIX: Inject Props into the Archive
         (m.entities?.props || []).forEach(prop => {
             entitiesPayload.props.push({
                 id: prop.id,
@@ -544,7 +587,7 @@ export async function buildUVTT2Archive(catalog, audioBlobs = {}) {
             });
         });
 
-        // Write map data into Zip layout
+        // Write map payload files into Zip layout
         zip.file(`maps/${slug}/geometry.json`, JSON.stringify(geometryPayload, null, 2));
         zip.file(`maps/${slug}/entities.json`, JSON.stringify(entitiesPayload, null, 2));
     }
@@ -568,7 +611,7 @@ export async function buildUVTT2Archive(catalog, audioBlobs = {}) {
 
     zip.file("manifest.json", JSON.stringify(globalManifest, null, 2));
 
-    // Append localized Audio Files into the correct directory
+    // Append localized audio assets into the campaign directory
     for (const [trackName, blob] of Object.entries(audioBlobs)) {
         zip.file(`assets/audio/${trackName}`, blob);
     }

@@ -1,8 +1,18 @@
+<!-- 
+  @component ToastManager
+  Global notification renderer[cite: 13].
+  Subscribes to the reactive `uiStore` to display non-blocking, auto-dismissing 
+  toast notifications (success, error, warning, info) at the bottom-right of the screen[cite: 13].
+-->
 <script>
   import { uiStore } from "$lib/stores/uiStore.svelte.js";
   import { fly, fade } from "svelte/transition";
 </script>
 
+<!-- 
+  The container uses pointer-events: none so clicks fall through to the PixiJS canvas,
+  while the individual toasts re-enable pointer-events so they can be manually closed[cite: 13]. 
+-->
 <div class="toast-container">
   {#each uiStore.toasts as toast (toast.id)}
     <div
@@ -11,12 +21,15 @@
       out:fade={{ duration: 200 }}
     >
       <div class="toast-icon">
+        <!-- Map the semantic toast type to a visual emoji icon[cite: 13] -->
         {#if toast.type === "success"}✅
         {:else if toast.type === "error"}🚨
         {:else if toast.type === "warning"}⚠️
         {:else}ℹ️{/if}
       </div>
+
       <div class="toast-message">{toast.message}</div>
+
       <button
         class="close-btn"
         onclick={() => uiStore.removeToast(toast.id)}
@@ -37,7 +50,8 @@
     flex-direction: column;
     gap: 12px;
     z-index: 10000;
-    pointer-events: none; /* Allows clicking through the container */
+    /* Crucial: Allows clicking through the invisible container background[cite: 13] */
+    pointer-events: none;
   }
 
   .toast {
@@ -53,11 +67,12 @@
       0 4px 6px -4px rgba(0, 0, 0, 0.5);
     min-width: 250px;
     max-width: 400px;
-    pointer-events: auto; /* Re-enable clicking on the toast itself */
+    /* Re-enable clicking on the toast itself so the close button works[cite: 13] */
+    pointer-events: auto;
     font-family: system-ui, sans-serif;
   }
 
-  /* Color Themes */
+  /* --- Semantic Color Themes ---[cite: 13] */
   .toast.info {
     border-left: 4px solid #3b82f6;
   }

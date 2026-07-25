@@ -1,16 +1,29 @@
+/**
+ * @fileoverview Spatial Audio Engine (Web Audio API Wrapper)
+ * Provides real-time, hardware-accelerated ambient audio processing.
+ * Handles dynamic distance-based volume falloff, Left/Right stereo panning, 
+ * and geometric acoustic occlusion (muffling sounds behind walls/closed doors).
+ */
+
 export class SpatialAudioEngine {
   constructor() {
     this.context = null;
     this.masterGain = null;
-    this.buffers = new Map(); // Stores decoded AudioBuffers by filename
-    this.activeNodes = new Map(); // Stores playing Web Audio nodes by Zone ID
+    /** @type {Map<string, AudioBuffer|string>} Stores decoded audio data, or "loading" locks */
+    this.buffers = new Map(); 
+    /** @type {Map<string, Object>} Stores active Web Audio routing graphs by Zone ID */
+    this.activeNodes = new Map(); 
     this.isInitialized = false;
   }
 
+  /**
+   * Initializes the Web Audio Context.
+   * Note: Modern browsers strictly require the AudioContext to be created or 
+   * resumed ONLY after a direct user interaction (like a click or drag).
+   */
   init() {
     if (this.isInitialized) return;
     
-    // Browsers strictly require the Audio Context to be created after a user interaction
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     if (!AudioContext) return;
     
@@ -22,17 +35,27 @@ export class SpatialAudioEngine {
     this.isInitialized = true;
   }
 
+  /**
+   * Safely wakes up the audio context if the browser suspended it.
+   */
   resume() {
     if (this.context && this.context.state === 'suspended') {
       this.context.resume();
     }
   }
 
+  /**
+   * Asynchronously decodes raw binary audio data into playable Web Audio Buffers.
+   * 
+   * @param {string} trackName - The unique filename/identifier of the track.
+   * @param {Blob|ArrayBuffer|Uint8Array|string} rawData - The raw audio data from the store or OS.
+   * @param {Function} onComplete - Callback fired the millisecond decoding finishes to trigger a Svelte re-render.
+   */
   async loadTrack(trackName, rawData, onComplete) {
     if (!this.context) return;
     if (this.buffers.has(trackName)) return; 
 
-    // Set to "loading" to prevent duplicate asynchronous decode calls
+    // Set to "loading" to prevent duplicate asynchronous decode calls for the same file
     this.buffers.set(trackName, "loading");
 
     try {
@@ -46,7 +69,7 @@ export class SpatialAudioEngine {
       } else if (rawData instanceof Uint8Array) {
         arrayBuffer = rawData.buffer;
       } else if (typeof rawData === "string") {
-        // Strip data URI headers if Wails sent Base64
+        // Strip data URI headers if Wails/FileReader sent a Base64 string
         let base64 = rawData;
         if (rawData.startsWith("data:")) {
            base64 = rawData.split(',')[1];
@@ -66,16 +89,18 @@ export class SpatialAudioEngine {
       this.buffers.set(trackName, audioBuffer);
       console.log(`[AudioEngine] Successfully decoded track: ${trackName}`);
       
-      // Kick Svelte so it immediately re-evaluates the audio nodes!
+      // Kick Svelte so it immediately re-evaluates and plays the new audio nodes!
       if (onComplete) onComplete();
 
     } catch (err) {
       console.error(`[AudioEngine] Failed to decode track: ${trackName}`, err);
-      this.buffers.delete(trackName); // Delete the "loading" lock so it can be retried
+      this.buffers.delete(trackName); // Delete the "loading" lock so it can be retried later
     }
   }
 
-  // Standard line-intersection math for Raycasting
+  /**
+   * Mathematical raycasting utility to check if an audio path crosses a physical line segment.
+   */
   _linesIntersect(x1, y1, x2, y2, x3, y3, x4, y4) {
     const den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
     if (den === 0) return false; // Parallel lines
@@ -84,11 +109,21 @@ export class SpatialAudioEngine {
     return t > 0 && t < 1 && u > 0 && u < 1;
   }
 
-  // Upgraded to return an Intersection Count rather than a simple Boolean
+  /**
+   * Casts a ray from the Listener (Ear) to the Emitter (Audio Zone) and counts how 
+   * many sound-blocking architectural barriers it passes through.
+   * 
+   * @param {number} lx - Listener X
+   * @param {number} ly - Listener Y
+   * @param {number} ex - Emitter X
+   * @param {number} ey - Emitter Y
+   * @param {Object} geometry - The map's walls and portals.
+   * @returns {number} The total count of intersecting solid barriers.
+   */
   _getOcclusionCount(lx, ly, ex, ey, geometry) {
     let intersections = 0;
 
-    // 1. Check Walls
+    // 1. Check Standard Walls
     const walls = geometry?.walls || [];
     for (const wall of walls) {
       if (!wall.path || wall.path.length < 2) continue;
@@ -127,7 +162,15 @@ export class SpatialAudioEngine {
   }
 
   /**
-   * The core audio loop. Call this on every render tick or drag event.
+   * The core continuous audio processing loop. 
+   * Called automatically by Svelte $effects whenever the camera pans, zooms, or the map updates.
+   * 
+   * @param {Array} audioZones - Active audio zones in the map manifest.
+   * @param {Object} audioBlobs - Store reference to raw localized tracks.
+   * @param {number} listenerX - Camera center or Player Token X coordinate.
+   * @param {number} listenerY - Camera center or Player Token Y coordinate.
+   * @param {Object} geometry - Map walls/portals for occlusion math.
+   * @param {Function} onDecodeComplete - Callback to trigger Svelte state changes.
    */
   syncZones(audioZones, audioBlobs, listenerX, listenerY, geometry, onDecodeComplete) {
     if (!this.isInitialized || !this.context) return;
@@ -152,7 +195,7 @@ export class SpatialAudioEngine {
       const ex = Number(zone.center?.x) || 0;
       const ey = Number(zone.center?.y) || 0;
       
-      // Calculate distance between Listener (Ear) and Emitter (Source)
+      // Calculate absolute distance between Listener (Ear) and Emitter (Source)
       const dx = ex - listenerX;
       const dy = ey - listenerY;
       const distance = Math.sqrt(dx * dx + dy * dy);
@@ -166,13 +209,13 @@ export class SpatialAudioEngine {
       if (distance <= innerRadius) {
         targetVolume = baseVolume; // 100% Volume inside the core
       } else if (distance < fadeRadius) {
-        // Linear fade between the inner core and the max radius edge
+        // Linear fade between the inner core boundary and the absolute max radius edge
         const fadeRatio = 1 - ((distance - innerRadius) / (fadeRadius - innerRadius));
         targetVolume = baseVolume * fadeRatio;
       }
 
       // 2. Panning Math (Left/Right ear based on X-axis difference)
-      // Clamped between -1 (Hard Left) and 1 (Hard Right)
+      // Clamped between -1.0 (Hard Left) and 1.0 (Hard Right)
       let panValue = dx / fadeRadius; 
       panValue = Math.max(-1, Math.min(1, panValue));
 
@@ -180,20 +223,20 @@ export class SpatialAudioEngine {
       const shouldMuffle = zone.muffledByWalls ?? true;
       const occlusionCount = shouldMuffle ? this._getOcclusionCount(listenerX, listenerY, ex, ey, geometry) : 0;
       
-      // Apply Lowpass filter if it hits AT LEAST one wall
+      // Apply Lowpass filter (muffling) if the sound hits AT LEAST one solid wall
       const targetFrequency = occlusionCount > 0 ? 600 : 22050; 
 
-      // Apply Custom Tiered Volume Penalty
+      // Apply Custom Tiered Volume Penalty based on architectural density
       if (occlusionCount === 1) {
-        targetVolume *= 0.10; // 10% volume remaining
+        targetVolume *= 0.10; // 10% volume remaining through 1 wall
       } else if (occlusionCount === 2) {
-        targetVolume *= 0.05; // 5% volume remaining
+        targetVolume *= 0.05; // 5% volume remaining through 2 walls
       } else if (occlusionCount >= 3) {
-        targetVolume *= 0.01; // 1% volume remaining
+        targetVolume *= 0.01; // 1% volume remaining through 3+ walls
       }
 
-      // If out of range (or muffled to absolute zero), stop the Web Audio node completely to save CPU
-      // Threshold lowered to < 0.005 so the 3rd wall (0.01) audio survives the cull
+      // If out of range (or muffled to absolute zero), cleanly stop the node to save CPU
+      // Threshold is < 0.005 so the 3rd wall (0.01) audio survives the cull
       if (targetVolume < 0.005) {
         if (this.activeNodes.has(zone.id)) {
           this.stopZone(zone.id);
@@ -229,7 +272,8 @@ export class SpatialAudioEngine {
         nodeState = { source, filter, panner, gain: gainNode };
         this.activeNodes.set(zone.id, nodeState);
       } else {
-        // RAMPING: We use setTargetAtTime so the audio shifts smoothly over 100ms
+        // AUDIO RAMPING: We use setTargetAtTime so the audio shifts smoothly over 100ms.
+        // This prevents violent audio "popping" or "clicking" when a user drags the camera quickly.
         const currentTime = this.context.currentTime;
         nodeState.gain.gain.setTargetAtTime(targetVolume, currentTime, 0.1);
         nodeState.panner.pan.setTargetAtTime(panValue, currentTime, 0.1);
@@ -237,7 +281,7 @@ export class SpatialAudioEngine {
       }
     });
 
-    // Cleanup: If an audio zone was deleted from the map, or we moved out of range, nuke the nodes
+    // Cleanup Loop: If an audio zone was deleted from the map, nuke the orphaned Web Audio nodes
     for (const [zoneId, nodeState] of this.activeNodes.entries()) {
       if (!currentZoneIds.has(zoneId)) {
         this.stopZone(zoneId);
@@ -245,6 +289,10 @@ export class SpatialAudioEngine {
     }
   }
 
+  /**
+   * Safely disconnects and destroys a running audio routing graph.
+   * @param {string} zoneId - The map manifest UUID of the audio zone.
+   */
   stopZone(zoneId) {
     const nodeState = this.activeNodes.get(zoneId);
     if (nodeState) {
@@ -259,6 +307,9 @@ export class SpatialAudioEngine {
     }
   }
 
+  /**
+   * Shuts down all active audio zones. Used during map/level switching.
+   */
   stopAll() {
     for (const zoneId of this.activeNodes.keys()) {
       this.stopZone(zoneId);
@@ -266,5 +317,5 @@ export class SpatialAudioEngine {
   }
 }
 
-// Export a singleton instance so it can be easily shared and driven by Svelte components
+// Export a singleton instance so it can be easily shared and driven by Svelte $effects
 export const audioEngine = new SpatialAudioEngine();

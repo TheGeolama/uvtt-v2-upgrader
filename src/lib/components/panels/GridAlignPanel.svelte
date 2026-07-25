@@ -1,6 +1,15 @@
+<!-- 
+  @component GridAlignPanel
+  The grid calibration and "rubber sheeting" interface[cite: 19].
+  Allows the Game Master to precisely align a map image's baked-in grid with the 
+  mathematical VTT coordinate system[cite: 19]. Supports both manual granular tweaking 
+  (DPI scaling and pixel offsets) and an automatic "best fit" algorithm based on 
+  user-drawn calibration boxes[cite: 19].
+-->
 <script>
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
 
+  // --- SVELTE 5 REACTIVE BINDINGS ---[cite: 19]
   let activeMap = $derived(mapStore.activeMap);
   let manifest = $derived(activeMap?.manifest);
 </script>
@@ -11,6 +20,9 @@
 >
   <h3 style="color: #22c55e;">📐 GRID RUBBER SHEETING</h3>
 
+  <!-- ========================================== -->
+  <!-- MANUAL CALIBRATION INPUTS                  -->
+  <!-- ========================================== -->
   <div
     style="margin-bottom: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;"
   >
@@ -101,6 +113,9 @@
     <strong>Or Auto-Align:</strong> Drag green boxes over 1x1 map squares.
   </p>
 
+  <!-- ========================================== -->
+  <!-- MICRO-NUDGE CONTROLS                       -->
+  <!-- ========================================== -->
   <div
     style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px;"
   >
@@ -130,7 +145,11 @@
     </div>
   </div>
 
+  <!-- ========================================== -->
+  <!-- AUTO-ALIGNMENT ALGORITHM CONTROLS          -->
+  <!-- ========================================== -->
   <div style="display: flex; flex-direction: column; gap: 8px;">
+    <!-- Calculates average DPI and offset across all drawn calibration boxes[cite: 19] -->
     <button
       class="action-btn wave"
       style="justify-content: center; font-weight: bold; border-color: #22c55e; color: #22c55e;"

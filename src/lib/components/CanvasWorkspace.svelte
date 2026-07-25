@@ -1,3 +1,9 @@
+<!-- 
+  @component CanvasWorkspace
+  The foundational PixiJS wrapper component. 
+  Orchestrates all interaction between the DOM (mouse/keyboard events), 
+  the Svelte mapStore (Data), and the underlying WebGL Canvas (PixiJS layers).
+-->
 <script>
   import { onMount, onDestroy } from "svelte";
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
@@ -30,6 +36,7 @@
   let originalPan = { x: 0, y: 0 };
 
   // --- CULLING STATE CACHE ---
+  // Tracks exactly when the camera has moved or map updated to prevent unnecessary math
   let lastCullPanX = null;
   let lastCullPanY = null;
   let lastCullScale = null;
@@ -56,7 +63,7 @@
   let isPixiReady = $state(false);
   let isDraggingVisionToken = $state(false);
 
-  // Coordinate HUD is now hidden by default
+  // Coordinate HUD is now hidden by default to keep the UI clean
   let showGridHUD = $state(false);
 
   let activeMap = $derived(mapStore.activeMap);
@@ -94,17 +101,21 @@
     mapSprite = new PIXI.Sprite();
     viewportContainer.addChild(mapSprite);
 
-    // Overlay is appended last so it sits on top of injected Svelte Layers
+    // Overlay is appended last so it sits on top of all injected Svelte Layers
     overlayContainer = new PIXI.Container();
     viewportContainer.addChild(overlayContainer);
 
-    // --- GPU OPTIMIZATION: VIEWPORT CULLING TICKER ---
+    // =========================================================================
+    // GPU OPTIMIZATION: VIEWPORT CULLING TICKER
+    // Taps directly into WebGL render loop. Prevents draw-calls for offscreen
+    // geometries, drastically improving framerates on massive multi-megabyte maps.
+    // =========================================================================
     pixiApp.ticker.add(() => {
       if (!activeMap || !viewportContainer) return;
 
       const currentTrigger = mapStore.updateTrigger;
 
-      // Only perform expensive bounds checks if the camera moved or the map updated
+      // Escape Hatch: Only perform expensive bounds checks if the camera moved or map updated
       if (
         panX === lastCullPanX &&
         panY === lastCullPanY &&
@@ -123,6 +134,7 @@
       const ch = window.innerHeight;
 
       // Calculate active viewing frustum with a generous 500px offscreen safety buffer
+      // This buffer prevents assets from "popping in" visibly at the edges of the screen
       const buffer = 500 / scale;
       const cameraLeft = -panX / scale - buffer;
       const cameraRight = (cw - panX) / scale + buffer;
@@ -133,17 +145,18 @@
         if (!node || !node.children) return;
 
         for (const child of node.children) {
-          // Skip the drafting overlay and the core map image itself
+          // Skip the Svelte drawing UI and the background map texture entirely
           if (child === mapSprite || child === overlayContainer) continue;
 
           if (child.children && child.children.length > 0) {
             // It is a structural container (like EntitiesLayer), recurse deeper
             applyCulling(child);
           } else {
-            // Leaf Display Object (Sprite, Graphic, Particle)
+            // Found a Leaf Display Object (Sprite, Graphic, Particle)
             const bounds = child.getLocalBounds();
 
-            // Bypass culling for massive objects (Grid, Global Weather, Fog of War masks)
+            // Bypass culling entirely for massive global-level objects
+            // (e.g. Map-wide Grids, Global Weather Emitters, Fog of War masks)
             if (bounds.width > 4000 || bounds.height > 4000) {
               child.renderable = true;
               continue;
@@ -155,7 +168,7 @@
             const globalTop = child.y + bounds.y;
             const globalBottom = child.y + bounds.y + bounds.height;
 
-            // If the item's bounding box is entirely outside the camera frustum, disable rendering
+            // If the bounding box is entirely outside the camera frustum, sever rendering
             if (
               globalRight < cameraLeft ||
               globalLeft > cameraRight ||
@@ -170,7 +183,7 @@
         }
       };
 
-      // Traverse all injected layer containers
+      // Traverse all injected layer containers mapped by Svelte
       for (const layer of viewportContainer.children) {
         if (layer === mapSprite || layer === overlayContainer) continue;
         applyCulling(layer);
@@ -190,7 +203,7 @@
     if (pixiApp) {
       pixiApp.destroy(true);
     }
-    // Shut down active nodes to prevent memory/audio leaks when switching away
+    // Shut down active nodes to prevent memory/audio leaks when switching apps
     audioEngine.stopAll();
   });
 
@@ -285,6 +298,7 @@
           const isExplicitlyOpen =
             item.closed === false || item.properties?.closed === false;
 
+          // Exclude windows, transparent walls, and broken/open doors from light blocking
           if (
             typeStr.includes("window") ||
             statusStr.includes("window") ||
@@ -304,7 +318,7 @@
             propsStr.includes('"blocks_light":false') ||
             propsStr.includes('"light":"pass"')
           ) {
-            return; // ABORT: Do not add this geometry to the light-blocking array!
+            return;
           }
 
           if (!item.path || item.path.length < 2) return;
@@ -560,10 +574,15 @@
     return { exactX, exactY, snapX, snapY, gridX, gridY };
   }
 
+  /**
+   * HTML5 FILE DROP LISTENER
+   * Acts as the primary ingestion router.
+   * Recognizes standard images (maps), legacy .dd2vtt, and native .uvtt2a Compound Assets.
+   */
   function handleDrop(e) {
     e.preventDefault();
 
-    // 1. Bypass HTML5 payload limits - Check internal window memory first
+    // 1. Asset Library Memory Bus Bypass (for Wails Desktop builds)
     if (
       window.__uvttDraggedAsset &&
       window.__uvttDraggedAsset.type === "asset_prop"
@@ -574,26 +593,24 @@
       mapStore.addProp(coords.exactX, coords.exactY, data.image, data.name);
 
       // --- SMART TOKEN SCALING ---
-      // Auto-scale the dropped image so its longest edge fits exactly 1 grid square (e.g., 5x5ft)
       const propsArray = activeMap?.manifest?.entities?.props || [];
       if (propsArray.length > 0 && data.naturalWidth && data.naturalHeight) {
         const newProp = propsArray[propsArray.length - 1];
         const maxDim = Math.max(data.naturalWidth, data.naturalHeight);
 
-        // Calculate scale percentage (e.g., 70px grid / 140px native image = 0.5 * 100 = 50% scale)
+        // Auto-scales the prop so its longest edge perfectly aligns with the current grid unit size
         const gridFitScale = (coords.gridX / maxDim) * 100;
         newProp.scale = Math.round(gridFitScale);
 
-        // Force rendering layers to sync the new scale instantly
         mapStore.updateTrigger++;
       }
 
       if (activeTool !== "select") mapStore.setTool("select");
       window.__uvttDraggedAsset = null; // Clean up memory
-      return; // Exit early so it doesn't trigger the file drop logic!
+      return;
     }
 
-    // 2. Legacy fallback just in case
+    // 2. Legacy fallback
     const dataStr = e.dataTransfer.getData("application/json");
     if (dataStr) {
       try {
@@ -612,14 +629,17 @@
       } catch (err) {}
     }
 
-    // 3. Handle external OS file drops
+    // 3. External File Drop Ingestion Router
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
       const ext = file.name.split(".").pop().toLowerCase();
+
       if (["png", "jpg", "jpeg", "webp"].includes(ext)) {
         mapStore.importImageAsMap(file);
         return;
-      } else if (ext === "uvtt2a") {
+      }
+      // NATIVE COMPOUND ASSET SPAWNING (.uvtt2a)
+      else if (ext === "uvtt2a") {
         const coords = getGridCoordinates(e.clientX, e.clientY, true, "select");
         mapStore.loadCompoundAssetFromFile(file, coords.exactX, coords.exactY);
         return;
@@ -640,7 +660,7 @@
       mapStore.closeContextMenu(); // Any left/middle click safely dismisses it
     }
 
-    // AUDIO ENGINE INIT
+    // AUDIO ENGINE INIT (Browsers require a user interaction gesture to unlock Web Audio API)
     if (!audioEngine.isInitialized) {
       audioEngine.init();
     } else {
@@ -757,7 +777,7 @@
       } else {
         mapStore.closeContextMenu();
       }
-      return; // Prevent triggering any panning or drafting logic!
+      return;
     }
 
     if (e.button === 2 && draftingPath.length === 0) {
@@ -814,6 +834,7 @@
     }
 
     if (e.button === 0) {
+      // Hotkey: Hold Ctrl/Cmd while using another tool to instantly swap to Box Select
       const isTempSelect = (e.ctrlKey || e.metaKey) && activeTool !== "select";
       const currentToolAction = isTempSelect ? "select" : activeTool;
 
@@ -965,6 +986,8 @@
         }
 
         if (closestItem) {
+          // Hotkey: Shift-Click triggers multi-selection logic
+          // (N-1 Selection Rule used for binding Triggers to multiple Target Elements)
           const isMulti = isTempSelect
             ? e.shiftKey
             : e.shiftKey || e.ctrlKey || e.metaKey;
@@ -1157,15 +1180,21 @@
     updateViewport();
   }
 
+  /**
+   * GLOBAL CANVAS HOTKEY LISTENER
+   */
   function handleKeyDown(e) {
+    // Ignore hotkeys if user is typing inside an input field
     if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+
+    // HOTKEY: Hold Spacebar to engage viewport panning mode
     if (e.code === "Space") {
       e.preventDefault();
       isSpacePressed = true;
       return;
     }
 
-    // --- NEW: ARROW KEY NUDGING ---
+    // HOTKEY: Arrow Key Nudging for perfect pixel alignment
     if (
       ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key) &&
       mapStore.selectedItemIds.length > 0
@@ -1177,7 +1206,7 @@
       const gridX = Number(manifest.resolution?.pixels_per_grid) || 70;
       const gridY = Number(manifest.resolution?.pixels_per_grid_y) || gridX;
 
-      // Move exactly 1 map pixel (10 pixels if Shift is held)
+      // Move exactly 1 map pixel (Hold Shift to nudge 10 pixels at a time)
       const multiplier = e.shiftKey ? 10 : 1;
       let dx = 0;
       let dy = 0;
@@ -1190,8 +1219,8 @@
       mapStore.translateSelection(dx, dy);
       return;
     }
-    // --- END NEW ---
 
+    // HOTKEY: Standard Map Editing Commands
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
       e.preventDefault();
       e.shiftKey ? mapStore.redo() : mapStore.undo();

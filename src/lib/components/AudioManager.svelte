@@ -1,47 +1,85 @@
+<!-- 
+  @component AudioManager
+  Floating UI panel for managing the campaign's bundled audio assets.
+  Allows the Game Master to upload local `.mp3` or `.ogg` files, preview them 
+  via the HTML5 Audio API, and bundle them into the global Svelte store so they 
+  can be wired to Spatial Audio Zones and exported in .uvtt2a/.uvtt2z archives[cite: 13].
+-->
 <script>
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
 
+  // --- SVELTE 5 REACTIVE STORE BINDINGS ---
   let activeMap = $derived(mapStore.activeMap);
   let audioBlobs = $derived(mapStore.audioBlobs);
+
+  // Dynamically extract the track names to populate the UI list[cite: 13]
   let trackNames = $derived(Object.keys(audioBlobs));
 
+  // --- LOCAL UI STATE ---
   let currentlyPlaying = $state(null);
   let audioPlayer = $state(null);
 
+  /**
+   * Handles multi-file uploads from the local OS.
+   * Directly pushes the raw File (Blob) objects into the deeply reactive Proxy store[cite: 13].
+   *
+   * @param {Event} event - The HTML input change event containing the FileList[cite: 13].
+   */
   function handleAudioUpload(event) {
     const files = Array.from(event.target.files);
     for (const file of files) {
-      // Add directly to the deeply reactive proxy store
+      // Add directly to the store. The audio key is the exact filename.
       mapStore.audioBlobs[file.name] = file;
     }
+    // Reset the input so the user can upload the exact same file again if they deleted it[cite: 13]
     event.target.value = "";
   }
 
+  /**
+   * Previews an uploaded track using the standard HTML5 Audio API.
+   * This is entirely separate from the SpatialAudioEngine, as it's just a 2D stereo preview[cite: 13].
+   *
+   * @param {string} trackName - The dictionary key of the track to play[cite: 13].
+   */
   function togglePlay(trackName) {
+    // If clicking the currently playing track, just pause it[cite: 13]
     if (currentlyPlaying === trackName) {
       audioPlayer.pause();
       currentlyPlaying = null;
     } else {
+      // If another track was playing, cleanly halt it and flush its Blob URL to prevent RAM leaks[cite: 13]
       if (audioPlayer) {
         audioPlayer.pause();
         URL.revokeObjectURL(audioPlayer.src);
       }
+
+      // Extract the binary blob and create a temporary browser-local URL[cite: 13]
       const blob = audioBlobs[trackName];
       audioPlayer = new Audio(URL.createObjectURL(blob));
       audioPlayer.play();
+
+      // Cleanup hook when the audio finishes naturally[cite: 13]
       audioPlayer.onended = () => {
         currentlyPlaying = null;
         URL.revokeObjectURL(audioPlayer.src);
       };
+
       currentlyPlaying = trackName;
     }
   }
 
+  /**
+   * Deletes an audio track from the project completely.
+   *
+   * @param {string} trackName - The dictionary key of the track to remove[cite: 13].
+   */
   function removeTrack(trackName) {
+    // Cleanly halt the track if the user deletes it while it is actively previewing[cite: 13]
     if (currentlyPlaying === trackName && audioPlayer) {
       audioPlayer.pause();
       currentlyPlaying = null;
     }
+    // Delete from the Svelte proxy store[cite: 13]
     delete mapStore.audioBlobs[trackName];
   }
 </script>

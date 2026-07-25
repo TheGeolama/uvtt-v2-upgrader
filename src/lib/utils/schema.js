@@ -1,34 +1,64 @@
+/**
+ * @fileoverview Data Validation and Schema Normalization Engine
+ * Acts as the strict gatekeeper for the mapStore and PixiJS canvas.
+ * Deeply inspects incoming raw manifest data, purges invalid or corrupted 
+ * geometry (e.g., 1-point walls), and injects safe default properties 
+ * to ensure 100% compliance with the V2 engine architecture[cite: 9].
+ */
+
+/**
+ * Deep clones, verifies, and sanitizes a raw map manifest[cite: 9].
+ * Mutates the clone by applying schema-compliant defaults to any missing properties 
+ * (like Z-axis heights, visibility toggles, or event bounds) and aggressively drops 
+ * mathematically invalid entities[cite: 9].
+ * 
+ * @param {Object} rawManifest - The raw, potentially unsafe map manifest payload[cite: 9].
+ * @returns {Object} A pristine, fully V2-compliant manifest object guaranteed to be safe for rendering[cite: 9].
+ */
 export function verifyAndCleanManifest(rawManifest) {
     if (!rawManifest) return {};
+    
+    // Create a deeply detached clone to avoid mutating the original memory references[cite: 9]
     const m = JSON.parse(JSON.stringify(rawManifest));
+    
+    // Helper to strictly verify valid numerical coordinates and prevent NaN canvas crashes[cite: 9]
     const isNum = (v) => typeof v === 'number' && !isNaN(v);
 
-    // --- CLEAN GEOMETRY ---
+    // ----------------------------------------------------
+    // 1. CLEAN GEOMETRY (Walls, Portals, Roofs)
+    // ----------------------------------------------------
     ['walls', 'portals', 'overhead'].forEach(cat => {
         if (m.geometry && m.geometry[cat]) {
             m.geometry[cat] = m.geometry[cat].filter(item => {
+                // Drop mathematically invalid vectors (must be an array of at least 2 points)[cite: 9]
                 if (!item.path || !Array.isArray(item.path) || item.path.length < 2) return false;
                 
                 if (!item.properties) item.properties = {};
                 if (!item.properties.visibility) item.properties.visibility = 'visible';
+                
+                // Enforce 3D architectural Z-height limits depending on the geometry category[cite: 9]
                 if (!isNum(item.properties.bottom)) item.properties.bottom = (cat === 'overhead' ? 10.0 : 0.0);
                 if (!isNum(item.properties.top)) item.properties.top = (cat === 'overhead' ? 20.0 : 10.0);
                 
-                // Specific Geometry Defaults
+                // Specific Geometry Defaults[cite: 9]
                 if (cat === 'portals') {
                     if (!item.properties.type) item.properties.type = 'door';
                     if (!item.properties.state) item.properties.state = 'closed';
                 }
                 
+                // Final safety check: ensure every point in the path has valid X/Y floats[cite: 9]
                 return item.path.every(pt => isNum(pt.x) && isNum(pt.y));
             });
         }
     });
 
-    // --- CLEAN ENTITIES ---
+    // ----------------------------------------------------
+    // 2. CLEAN ENTITIES (Lights, Events, Props, etc.)
+    // ----------------------------------------------------
     if (m.entities) {
         if (!m.entities.props) m.entities.props = [];
         
+        // Sanitize Dynamic Lights[cite: 9]
         if (m.entities.lights) {
             m.entities.lights = m.entities.lights.filter(l => {
                 if (!l.position || !isNum(l.position.x) || !isNum(l.position.y)) return false;
@@ -46,6 +76,7 @@ export function verifyAndCleanManifest(rawManifest) {
             });
         }
         
+        // Sanitize Landing Zones (Spawns)[cite: 9]
         if (m.entities.landing_zones) {
             m.entities.landing_zones = m.entities.landing_zones.filter(lz => {
                 const isValidCoords = lz.coordinates && Array.isArray(lz.coordinates) && isNum(lz.coordinates[0]) && isNum(lz.coordinates[1]);
@@ -56,14 +87,18 @@ export function verifyAndCleanManifest(rawManifest) {
             });
         }
         
+        // Sanitize Interactive Events / Triggers[cite: 9]
         if (m.entities.events) {
             m.entities.events = m.entities.events.filter(ev => {
+                // Safely up-convert legacy coordinate formats (x, y) into modern bounds objects[cite: 9]
                 if (!ev.trigger_bounds) {
                     if (isNum(ev.x) && isNum(ev.y)) {
                         ev.trigger_bounds = { center: { x: ev.x, y: ev.y }, width: 2, height: 2 };
                     } else return false; 
                 }
                 if (!ev.trigger_bounds.center) ev.trigger_bounds.center = { x: 0, y: 0 };
+                
+                // Safely convert legacy circular radii into modern square trigger boxes[cite: 9]
                 if (isNum(ev.trigger_bounds.radius) && !isNum(ev.trigger_bounds.width)) {
                     ev.trigger_bounds.width = ev.trigger_bounds.radius * 2;
                     ev.trigger_bounds.height = ev.trigger_bounds.radius * 2;
@@ -80,6 +115,7 @@ export function verifyAndCleanManifest(rawManifest) {
             });
         }
         
+        // Sanitize Spatial Audio Zones[cite: 9]
         if (m.entities.audio && m.entities.audio.zones) {
             m.entities.audio.zones = m.entities.audio.zones.filter(az => {
                 if (!az.center || !isNum(az.center.x) || !isNum(az.center.y)) return false;
@@ -93,6 +129,7 @@ export function verifyAndCleanManifest(rawManifest) {
             });
         }
         
+        // Sanitize Particle Emitters (Weather / Smoke)[cite: 9]
         if (m.entities.emitters) {
             m.entities.emitters = m.entities.emitters.filter(em => {
                 if (!em.position || !isNum(em.position.x) || !isNum(em.position.y)) return false;
@@ -103,9 +140,10 @@ export function verifyAndCleanManifest(rawManifest) {
                 if (!em.properties.visibility) em.properties.visibility = 'visible';
                 
                 return true;
-			      });
+            });
         }
         
+        // Sanitize Object Props[cite: 9]
         if (m.entities.props) {
             m.entities.props = m.entities.props.filter(pr => {
                 if (!pr.position || !isNum(pr.position.x) || !isNum(pr.position.y)) return false;
@@ -121,7 +159,9 @@ export function verifyAndCleanManifest(rawManifest) {
         }
     }
 
-    // --- CLEAN RESOLUTION ---
+    // ----------------------------------------------------
+    // 3. CLEAN RESOLUTION
+    // ----------------------------------------------------
     if (!m.resolution) m.resolution = {};
     if (!isNum(m.resolution.pixels_per_grid)) m.resolution.pixels_per_grid = 70;
     if (!isNum(m.resolution.grid_line_width)) m.resolution.grid_line_width = 1.5;

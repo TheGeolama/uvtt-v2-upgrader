@@ -1,6 +1,21 @@
+<!-- 
+  @component EntityPanel
+  Dynamic property inspector for map entities (Props, Lights, Spawns, Audio, Emitters)[cite: 19].
+  Acts as a dual-purpose UI: if items are selected on the canvas, it edits their specific properties in real-time.
+  If no items are selected, it acts as a configuration panel for the active placement tool's default settings[cite: 19].
+-->
 <script>
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
 
+  /**
+   * Dispatches property updates to the central map store[cite: 19].
+   * If items are actively selected, it applies the change to all selected items (supporting multi-edit)[cite: 19].
+   * Otherwise, it updates the default settings blueprint for the active tool[cite: 19].
+   *
+   * @param {string} category - The entity category (e.g., 'light', 'audio')[cite: 19].
+   * @param {string} keyPath - The dot-notation JSON path pointing to the property[cite: 19].
+   * @param {any} value - The new value to apply[cite: 19].
+   */
   function handlePropChange(category, keyPath, value) {
     if (mapStore.selectedItemIds.length > 0) {
       mapStore.selectedItemIds.forEach((id) =>
@@ -11,9 +26,16 @@
     }
   }
 
+  /**
+   * Determines the data context for the property panel by scanning the active map manifest[cite: 19].
+   *
+   * @returns {{cat: string, data: Object}} The category and data object to bind the UI controls to[cite: 19].
+   */
   function getSelectionContext() {
     const ids = mapStore.selectedItemIds;
     const tool = mapStore.activeTool;
+
+    // Fallback to the active tool's default settings if nothing is selected[cite: 19]
     if (!ids || ids.length === 0)
       return { cat: tool, data: mapStore.defaultSettings[tool] || {} };
 
@@ -21,6 +43,7 @@
     const m = mapStore.activeMap?.manifest;
     if (!m) return { cat: tool, data: {} };
 
+    // Scan manifest entity arrays to match the selected UUID and determine its category[cite: 19]
     let item;
     if ((item = m.entities?.lights?.find((i) => i.id === id)))
       return { cat: "light", data: item };
@@ -36,6 +59,8 @@
     return { cat: tool, data: mapStore.defaultSettings[tool] || {} };
   }
 
+  // --- SVELTE 5 REACTIVE BINDINGS ---
+  // Hooked into the mapStore's manual update trigger to ensure the UI refreshes when external edits occur[cite: 19]
   let ctx = $derived.by(() => {
     let _ = mapStore.updateTrigger;
     return getSelectionContext();
@@ -45,6 +70,9 @@
   let activeConf = $derived(ctx.data);
 </script>
 
+<!-- ========================================== -->
+<!-- PROP & TOKEN CONFIGURATION                 -->
+<!-- ========================================== -->
 {#if displayCategory === "prop"}
   <label>
     <span>Asset Name:</span>
@@ -102,6 +130,10 @@
         handlePropChange("prop", "position.z", parseFloat(e.target.value))}
     />
   </label>
+
+  <!-- ========================================== -->
+  <!-- LIGHTING CONFIGURATION                     -->
+  <!-- ========================================== -->
 {:else if displayCategory === "light"}
   <label>
     <span>Lighting Projection Type:</span>
@@ -301,6 +333,10 @@
       </div>
     </label>
   {/if}
+
+  <!-- ========================================== -->
+  <!-- SPAWN / LANDING ZONE CONFIGURATION         -->
+  <!-- ========================================== -->
 {:else if displayCategory === "spawn"}
   <label>
     <span>Spawn Point Name:</span>
@@ -358,6 +394,10 @@
     />
     <span>Set as Default Landing Zone</span>
   </label>
+
+  <!-- ========================================== -->
+  <!-- AUDIO ZONE CONFIGURATION                   -->
+  <!-- ========================================== -->
 {:else if displayCategory === "audio"}
   <label>
     <span>Audio Track:</span>
@@ -423,6 +463,10 @@
     />
     <span>Muffled by Walls (Occlusion)</span>
   </label>
+
+  <!-- ========================================== -->
+  <!-- PARTICLE EMITTER CONFIGURATION             -->
+  <!-- ========================================== -->
 {:else if displayCategory === "emitter"}
   <label class="checkbox-row">
     <input

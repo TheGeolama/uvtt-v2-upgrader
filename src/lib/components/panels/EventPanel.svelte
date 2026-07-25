@@ -1,6 +1,22 @@
+<!-- 
+  @component EventPanel
+  The master property inspector for architectural geometry and interactive events[cite: 19].
+  Acts as a contextual UI: if items are selected on the canvas, it renders the specific 
+  configuration inputs for their category (Wall, Portal, Roof, Event, etc.)[cite: 19].
+  Includes advanced interactive wiring UI for binding logic triggers to target entities[cite: 19].
+-->
 <script>
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
 
+  /**
+   * Dispatches property updates to the central map store[cite: 19].
+   * If items are actively selected, it applies the change to all selected items (supporting multi-edit)[cite: 19].
+   * Otherwise, it updates the default settings blueprint for the active placement tool[cite: 19].
+   *
+   * @param {string} category - The entity/geometry category (e.g., 'event', 'wall')[cite: 19].
+   * @param {string} keyPath - The dot-notation JSON path pointing to the specific property[cite: 19].
+   * @param {any} value - The new value to apply[cite: 19].
+   */
   function handlePropChange(category, keyPath, value) {
     if (mapStore.selectedItemIds.length > 0) {
       mapStore.selectedItemIds.forEach((id) =>
@@ -11,17 +27,26 @@
     }
   }
 
+  /**
+   * Determines the data context for the property panel by scanning the active map manifest[cite: 19].
+   *
+   * @returns {{cat: string, data: Object}} The category and data object to bind the UI controls to[cite: 19].
+   */
   function getSelectionContext() {
     const ids = mapStore.selectedItemIds;
     const tool = mapStore.activeTool;
+
+    // Fallback to the active tool's default settings if nothing is selected[cite: 19]
     if (!ids || ids.length === 0)
       return { cat: tool, data: mapStore.defaultSettings[tool] || {} };
+
     const id = ids[0];
     const m = mapStore.activeMap?.manifest;
     if (!m) return { cat: tool, data: {} };
 
     let item;
-    // Entities
+
+    // --- Scan Entities ---[cite: 19]
     if ((item = m.entities?.lights?.find((i) => i.id === id)))
       return { cat: "light", data: item };
     if ((item = m.entities?.audio?.zones?.find((i) => i.id === id)))
@@ -34,24 +59,31 @@
       return { cat: "prop", data: item };
     if ((item = m.entities?.events?.find((i) => i.id === id)))
       return { cat: "event", data: item };
-    // Geometry
+
+    // --- Scan Geometry ---[cite: 19]
     if ((item = m.geometry?.walls?.find((i) => i.id === id)))
       return { cat: "wall", data: item };
     if ((item = m.geometry?.portals?.find((i) => i.id === id)))
       return { cat: "portal", data: item };
     if ((item = m.geometry?.overhead?.find((i) => i.id === id)))
       return { cat: "roof", data: item };
+
     return { cat: tool, data: mapStore.defaultSettings[tool] || {} };
   }
 
+  // --- SVELTE 5 REACTIVE BINDINGS ---[cite: 19]
   let ctx = $derived.by(() => {
-    let _ = mapStore.updateTrigger;
+    let _ = mapStore.updateTrigger; // Hooks into the mapStore's manual update trigger[cite: 19]
     return getSelectionContext();
   });
+
   let displayCategory = $derived(ctx.cat);
   let activeConf = $derived(ctx.data);
 </script>
 
+<!-- ========================================== -->
+<!-- PROP CONFIGURATION                         -->
+<!-- ========================================== -->
 {#if displayCategory === "prop"}
   <label>
     <span>Asset Name:</span>
@@ -109,6 +141,10 @@
         handlePropChange("prop", "position.z", parseFloat(e.target.value))}
     />
   </label>
+
+  <!-- ========================================== -->
+  <!-- WALL CONFIGURATION                         -->
+  <!-- ========================================== -->
 {:else if displayCategory === "wall"}
   <label>
     <span>Wall Type:</span>
@@ -148,6 +184,10 @@
         handlePropChange("wall", "properties.top", parseFloat(e.target.value))}
     />
   </label>
+
+  <!-- ========================================== -->
+  <!-- PORTAL (DOOR/WINDOW) CONFIGURATION         -->
+  <!-- ========================================== -->
 {:else if displayCategory === "portal"}
   <label>
     <span>Portal Type:</span>
@@ -202,6 +242,10 @@
         )}
     />
   </label>
+
+  <!-- ========================================== -->
+  <!-- ROOF (OVERHEAD) CONFIGURATION              -->
+  <!-- ========================================== -->
 {:else if displayCategory === "roof"}
   <label class="checkbox-row">
     <input
@@ -274,6 +318,10 @@
         handlePropChange("roof", "properties.top", parseFloat(e.target.value))}
     />
   </label>
+
+  <!-- ========================================== -->
+  <!-- INTERACTIVE EVENT CONFIGURATION            -->
+  <!-- ========================================== -->
 {:else if displayCategory === "event"}
   <label>
     <span>Event Name:</span>
@@ -306,6 +354,7 @@
     </select>
   </label>
 
+  <!-- EVENT: WIRING TARGETS -->
   {#if activeConf.eventType === "State Toggle" || activeConf.eventType === "Audio Trigger"}
     <label>
       <span>Target Action:</span>
@@ -330,6 +379,7 @@
         > entities
       </p>
 
+      <!-- Multi-select logic: User shift-clicks targets on the canvas to bind them[cite: 19] -->
       {#if mapStore.selectedItemIds.length > 1}
         <button
           class="wire-btn"
@@ -359,11 +409,13 @@
     </div>
   {/if}
 
+  <!-- EVENT: TELEPORT ROUTING -->
   {#if activeConf.eventType === "Teleport" || activeConf.eventType === "Stairs/Ladder"}
     {@const targetLevel = mapStore.catalog.find(
       (m) => m.id === (activeConf.targetFloorId || mapStore.activeMapId),
     )}
 
+    <!-- Automates bidirectional links for multi-level dungeons[cite: 19] -->
     {#if mapStore.selectedItemIds.length === 0}
       <label class="checkbox-row">
         <input
@@ -384,7 +436,8 @@
           value={activeConf.targetFloorId || mapStore.activeMapId}
           onchange={(e) => {
             handlePropChange("event", "targetFloorId", e.target.value);
-            handlePropChange("event", "targetSpawnId", ""); // Reset spawn when map changes
+            // Reset the spawn selection when the map level changes[cite: 19]
+            handlePropChange("event", "targetSpawnId", "");
           }}
         >
           {#each mapStore.catalog as level}
@@ -408,6 +461,10 @@
       </label>
     </div>
   {/if}
+
+  <!-- ========================================== -->
+  <!-- LIGHTING CONFIGURATION                     -->
+  <!-- ========================================== -->
 {:else if displayCategory === "light"}
   <label>
     <span>Lighting Projection Type:</span>
@@ -607,6 +664,10 @@
       </div>
     </label>
   {/if}
+
+  <!-- ========================================== -->
+  <!-- SPAWN POINT CONFIGURATION                  -->
+  <!-- ========================================== -->
 {:else if displayCategory === "spawn"}
   <label>
     <span>Spawn Point Name:</span>
@@ -664,6 +725,10 @@
     />
     <span>Set as Default Landing Zone</span>
   </label>
+
+  <!-- ========================================== -->
+  <!-- AUDIO ZONE CONFIGURATION                   -->
+  <!-- ========================================== -->
 {:else if displayCategory === "audio"}
   <label>
     <span>Audio Track:</span>
@@ -729,6 +794,10 @@
     />
     <span>Muffled by Walls (Occlusion)</span>
   </label>
+
+  <!-- ========================================== -->
+  <!-- PARTICLE EMITTER CONFIGURATION             -->
+  <!-- ========================================== -->
 {:else if displayCategory === "emitter"}
   <label class="checkbox-row">
     <input
@@ -910,6 +979,10 @@
       />
     </div>
   </label>
+
+  <!-- ========================================== -->
+  <!-- FALLBACK CONFIGURATION                     -->
+  <!-- ========================================== -->
 {:else}
   <p class="helper-text">
     Basic clone/translate capabilities active. Specific properties coming soon.
