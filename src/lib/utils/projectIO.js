@@ -1,6 +1,5 @@
 import JSZip from 'jszip';
 import { verifyAndCleanManifest } from './schema.js';
-// 
 
 export function downloadBlob(filename, blob) {
     const url = URL.createObjectURL(blob);
@@ -310,6 +309,87 @@ export async function buildUVTT2Archive(catalog, audioBlobs = {}) {
     zip.file("manifest.hash", fileHashes.join("\n"));
 
     return zip.generateAsync({ type: "blob" });
+}
+
+// ----------------------------------------------------
+// NATIVE .UVTT2A COMPOUND ASSET PIPELINE
+// ----------------------------------------------------
+export async function exportAssetPackage(assetName, payload, audioBlobs) {
+    const zip = new JSZip();
+    
+    // De-embed base64 graphics to keep JSON lightweight
+    if (payload.image && payload.image.startsWith('data:image')) {
+        const parts = payload.image.split(',');
+        const mime = parts[0].match(/:(.*?);/)[1];
+        const binary = atob(parts[1]);
+        const array = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) array[i] = binary.charCodeAt(i);
+        
+        let ext = 'png';
+        if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
+        if (mime.includes('webp')) ext = 'webp';
+        
+        zip.file(`image.${ext}`, array);
+        payload.image = `image.${ext}`;
+    }
+    
+    // Bundle any attached local audio blobs
+    if (payload.auto_emits?.audio) {
+        for (const az of payload.auto_emits.audio) {
+            if (az.track && audioBlobs[az.track]) {
+                zip.file(`audio/${az.track}`, audioBlobs[az.track]);
+            }
+        }
+    }
+    
+    zip.file("asset.json", JSON.stringify(payload, null, 2));
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    downloadBlob(`${assetName.replace(/[^a-z0-9]/gi, '_')}.uvtt2a`, zipBlob);
+}
+
+export async function importAssetPackage(file) {
+    try {
+        const zip = await JSZip.loadAsync(file);
+        const assetFile = zip.file("asset.json");
+        if (!assetFile) {
+            alert("Invalid UVTT2A package: missing asset.json payload.");
+            return null;
+        }
+        
+        const payload = JSON.parse(await assetFile.async("string"));
+        const extractedAudio = {};
+        
+        // Re-hydrate the graphic blob back into a base64 Data URL for the canvas
+        if (payload.image && !payload.image.startsWith('http') && !payload.image.startsWith('data:image')) {
+            const imgFile = zip.file(payload.image);
+            if (imgFile) {
+                const blob = await imgFile.async("blob");
+                payload.image = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.readAsDataURL(blob);
+                });
+            }
+        }
+
+        // Extract localized audio back into independent blobs
+        if (payload.auto_emits?.audio) {
+            for (const az of payload.auto_emits.audio) {
+                if (az.track) {
+                    const af = zip.file(`audio/${az.track}`);
+                    if (af) {
+                        extractedAudio[az.track] = await af.async("blob");
+                    }
+                }
+            }
+        }
+        
+        return { payload, extractedAudio };
+    } catch (err) {
+        console.error("Error unpacking UVTT2A", err);
+        alert("Failed to unpack compound asset package.");
+        return null;
+    }
 }
 
 export async function saveProject(store) {

@@ -46,55 +46,49 @@
   {@const pointCount = activeConf.path ? activeConf.path.length : 0}
   {@const canSmooth = pointCount >= 3}
 
-  <!-- BULLETPROOF BEZIER CHECKBOX -->
+  <!-- ITERATIVE BEZIER ACTION BUTTON -->
   <div
-    style="margin-bottom: 12px; background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.2); padding: 10px; border-radius: 6px;"
+    style="margin-bottom: 12px; background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.2); padding: 10px; border-radius: 6px; display: flex; flex-direction: column; gap: 8px;"
   >
-    <label
-      style="display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 0; cursor: {!hasWallSelected ||
+    <button
+      style="background: #0ea5e9; color: #fff; border: none; border-radius: 4px; padding: 8px; font-size: 12px; font-weight: bold; cursor: {!hasWallSelected ||
       !canSmooth
         ? 'not-allowed'
-        : 'pointer'}; opacity: {!hasWallSelected || !canSmooth ? 0.5 : 1};"
+        : 'pointer'}; opacity: {!hasWallSelected || !canSmooth
+        ? 0.5
+        : 1}; transition: background 0.2s;"
+      disabled={!hasWallSelected || !canSmooth}
+      onmouseover={(e) => {
+        if (hasWallSelected && canSmooth) e.target.style.background = "#0284c7";
+      }}
+      onmouseout={(e) => {
+        if (hasWallSelected && canSmooth) e.target.style.background = "#0ea5e9";
+      }}
+      onclick={() => {
+        handlePropChange("wall", "isBezier", true);
+        mapStore.smoothSelectedWalls();
+        mapStore.updateTrigger++;
+      }}
     >
-      <input
-        type="checkbox"
-        style="cursor: pointer; width: 14px; height: 14px; accent-color: #00f0ff;"
-        checked={!!activeConf.isBezier}
-        disabled={!hasWallSelected || !canSmooth}
-        onchange={(e) => {
-          if (e.target.checked) {
-            handlePropChange("wall", "isBezier", true);
-            mapStore.smoothSelectedWalls();
-          } else {
-            handlePropChange("wall", "isBezier", false);
-          }
-          // FORCE PIXIJS CANVAS TO IMMEDIATELY RE-RENDER
-          mapStore.updateTrigger++;
-          mapStore.redrawTick++;
-        }}
-      />
-      <span style="color: #00f0ff; font-weight: bold; font-size: 12px;"
-        >Smooth Path (Bezier Curve)</span
-      >
-    </label>
+      〰️ Apply Smoothing Pass
+    </button>
 
     {#if !hasWallSelected}
       <p
-        style="font-size: 11px; font-style: italic; color: #94a3b8; margin: 6px 0 0 0; line-height: 1.4;"
+        style="font-size: 11px; font-style: italic; color: #94a3b8; margin: 0; line-height: 1.4;"
       >
         Select an existing wall to apply smoothing.
       </p>
     {:else if !canSmooth}
       <p
-        style="font-size: 11px; font-style: italic; color: #ef4444; margin: 6px 0 0 0; line-height: 1.4;"
+        style="font-size: 11px; font-style: italic; color: #ef4444; margin: 0; line-height: 1.4;"
       >
         ⚠️ Curves require a wall with at least 3 points.
       </p>
     {:else}
-      <p
-        style="font-size: 11px; color: #94a3b8; margin: 6px 0 0 0; line-height: 1.4;"
-      >
-        Applies a cubic Bezier smoothing algorithm.
+      <p style="font-size: 11px; color: #94a3b8; margin: 0; line-height: 1.4;">
+        Click to subdivide and smooth. Adjust points, then click again to
+        refine!
       </p>
     {/if}
   </div>

@@ -10,7 +10,9 @@ import {
     exportCompoundVTT,
     exportSecureVTT,
     loadProjectFromFile,
-    importImageAsMap
+    importImageAsMap,
+    exportAssetPackage,
+    importAssetPackage
 } from '$lib/utils/projectIO.js';
 
 class MapStore {
@@ -1202,26 +1204,56 @@ class MapStore {
         }
     }
 
+    // --- ITERATIVE CHAIKIN'S CORNER CUTTING ---
     smoothSelectedWalls() {
         const activeMap = this.activeMap;
         if (!activeMap || this.selectedItemIds.length === 0) return;
         const m = activeMap.manifest;
+        let modified = false;
+
         this.selectedItemIds.forEach(id => {
             const wallIndex = m.geometry.walls?.findIndex(i => i.id === id);
             if (wallIndex > -1) {
                 const newWalls = [...m.geometry.walls];
                 const wall = { ...newWalls[wallIndex] };
-                if (wall.path && wall.path.length > 2) {
-                    wall.path = pointsToBezier(wall.path);
+                
+                // Only mathematically valid if there are 3 or more points
+                if (wall.path && wall.path.length >= 3) {
+                    let smoothedPath = wall.path.map(pt => ({ x: Number(pt.x), y: Number(pt.y) }));
+                    
+                    // Runs exactly ONE iteration per pass (Subdivision workflow)
+                    const newPath = [];
+                    for (let i = 0; i < smoothedPath.length - 1; i++) {
+                        const p0 = smoothedPath[i];
+                        const p1 = smoothedPath[i + 1];
+                        
+                        // Calculate 25% and 75% marks along the straight line
+                        newPath.push({ x: p0.x * 0.75 + p1.x * 0.25, y: p0.y * 0.75 + p1.y * 0.25 });
+                        newPath.push({ x: p0.x * 0.25 + p1.x * 0.75, y: p0.y * 0.25 + p1.y * 0.75 });
+                    }
+                    
+                    // Always perfectly pin the absolute start and end coordinates
+                    smoothedPath = [
+                        { x: smoothedPath[0].x, y: smoothedPath[0].y },
+                        ...newPath,
+                        { x: smoothedPath[smoothedPath.length - 1].x, y: smoothedPath[smoothedPath.length - 1].y }
+                    ];
+
+                    wall.path = smoothedPath;
                     wall.isBezier = true; 
                     newWalls[wallIndex] = wall;
-                    m.geometry.walls = newWalls; 
+                    m.geometry.walls = newWalls;
+                    modified = true;
                 }
             }
         });
-        this.activeMap.manifest = { ...m };
-        this.pushHistory("Smoothed Spline");
-        this.updateTrigger++;
+        
+        // Push State History and trigger canvas redraws
+        if (modified) {
+            this.activeMap.manifest = { ...m };
+            this.pushHistory("Applied Smoothing Pass");
+            this.updateTrigger++;
+        }
     }
 
     copySelected() {
@@ -1366,6 +1398,133 @@ class MapStore {
         
         this.activeMap.manifest = { ...activeMap.manifest };
         this.pushHistory("Added Prop Asset");
+        this.updateSpatialIndex();
+        this.updateTrigger++;
+    }
+
+    // --- COMPOUND ASSET MACROS (.UVTT2A) ---
+    packCompoundAsset() {
+        if (!this.activeMap || this.selectedItemIds.length !== 1) {
+            alert("Please select exactly one Prop base to package as a Compound Asset.");
+            return;
+        }
+        const propId = this.selectedItemIds[0];
+        const prop = this.activeMap.manifest.entities.props?.find(p => p.id === propId);
+        if (!prop) {
+            alert("The selected base item must be a Prop graphic.");
+            return;
+        }
+
+        const payload = {
+            type: "asset_prop",
+            name: prop.name || "Compound_Asset",
+            image: prop.image,
+            scale: prop.scale || 100,
+            auto_emits: { lights: [], audio: [], emitters: [] }
+        };
+
+        const px = prop.position.x;
+        const py = prop.position.y;
+        // Scoop up any elements sitting within a 1.5-grid-unit radius of the prop
+        const thresholdSq = 1.5 * 1.5; 
+        const getDistSq = (x1, y1, x2, y2) => (x2 - x1)**2 + (y2 - y1)**2;
+
+        (this.activeMap.manifest.entities.lights || []).forEach(l => {
+            if (getDistSq(px, py, l.position.x, l.position.y) <= thresholdSq) {
+                const cloned = JSON.parse(JSON.stringify(l));
+                cloned.offset_x = cloned.position.x - px; // Record relative deployment offset
+                cloned.offset_y = cloned.position.y - py;
+                delete cloned.id; delete cloned.position;
+                payload.auto_emits.lights.push(cloned);
+            }
+        });
+
+        (this.activeMap.manifest.entities.emitters || []).forEach(e => {
+            if (getDistSq(px, py, e.position.x, e.position.y) <= thresholdSq) {
+                const cloned = JSON.parse(JSON.stringify(e));
+                cloned.offset_x = cloned.position.x - px;
+                cloned.offset_y = cloned.position.y - py;
+                delete cloned.id; delete cloned.position;
+                payload.auto_emits.emitters.push(cloned);
+            }
+        });
+
+        (this.activeMap.manifest.entities.audio?.zones || []).forEach(a => {
+            if (getDistSq(px, py, a.center.x, a.center.y) <= thresholdSq) {
+                const cloned = JSON.parse(JSON.stringify(a));
+                cloned.offset_x = cloned.center.x - px;
+                cloned.offset_y = cloned.center.y - py;
+                delete cloned.id; delete cloned.center;
+                payload.auto_emits.audio.push(cloned);
+            }
+        });
+
+        exportAssetPackage(payload.name, payload, this.audioBlobs);
+        this.closeContextMenu();
+    }
+
+    async loadCompoundAssetFromFile(file, x, y) {
+        const data = await importAssetPackage(file);
+        if (!data) return;
+        this.spawnCompoundAsset(x, y, data.payload, data.extractedAudio);
+    }
+
+    spawnCompoundAsset(x, y, payload, extractedAudio = {}) {
+        const activeMap = this.activeMap;
+        if (!activeMap) return;
+
+        // Merge any internal audio directly into the store
+        for (const [track, blob] of Object.entries(extractedAudio)) {
+            this.audioBlobs[track] = blob;
+        }
+
+        // Deploy the base graphic
+        const propId = crypto.randomUUID();
+        const prop = {
+            id: propId,
+            name: payload.name,
+            image: payload.image,
+            position: { x, y, z: 0 },
+            rotation: 0,
+            scale: payload.scale || 100,
+            properties: { visibility: 'visible', z_index: 0, locked: false }
+        };
+        if (!activeMap.manifest.entities.props) activeMap.manifest.entities.props = [];
+        activeMap.manifest.entities.props.push(prop);
+
+        // Explode and deploy the sensory arrays
+        if (payload.auto_emits) {
+            if (payload.auto_emits.lights) {
+                if (!activeMap.manifest.entities.lights) activeMap.manifest.entities.lights = [];
+                payload.auto_emits.lights.forEach(l => {
+                    const newLight = { ...l, id: crypto.randomUUID(), position: { x: x + (l.offset_x || 0), y: y + (l.offset_y || 0), z: l.z || 0 } };
+                    delete newLight.offset_x; delete newLight.offset_y; delete newLight.z;
+                    activeMap.manifest.entities.lights.push(newLight);
+                });
+            }
+            if (payload.auto_emits.emitters) {
+                if (!activeMap.manifest.entities.emitters) activeMap.manifest.entities.emitters = [];
+                payload.auto_emits.emitters.forEach(e => {
+                    const newEmitter = { ...e, id: crypto.randomUUID(), position: { x: x + (e.offset_x || 0), y: y + (e.offset_y || 0), z: e.z || 0 } };
+                    delete newEmitter.offset_x; delete newEmitter.offset_y; delete newEmitter.z;
+                    activeMap.manifest.entities.emitters.push(newEmitter);
+                });
+            }
+            if (payload.auto_emits.audio) {
+                if (!activeMap.manifest.entities.audio) activeMap.manifest.entities.audio = { zones: [] };
+                if (!activeMap.manifest.entities.audio.zones) activeMap.manifest.entities.audio.zones = [];
+                payload.auto_emits.audio.forEach(a => {
+                    const newAudio = { ...a, id: crypto.randomUUID(), center: { x: x + (a.offset_x || 0), y: y + (a.offset_y || 0) } };
+                    delete newAudio.offset_x; delete newAudio.offset_y;
+                    activeMap.manifest.entities.audio.zones.push(newAudio);
+                });
+            }
+        }
+
+        this.activeMap.manifest = { ...activeMap.manifest };
+        this.selectedItemIds = [propId];
+        this.setTool("select");
+        this.pushHistory("Spawned Compound Asset");
         this.updateSpatialIndex();
         this.updateTrigger++;
     }

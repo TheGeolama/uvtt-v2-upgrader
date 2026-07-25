@@ -29,6 +29,12 @@
   let dragStart = { x: 0, y: 0 };
   let originalPan = { x: 0, y: 0 };
 
+  // --- CULLING STATE CACHE ---
+  let lastCullPanX = null;
+  let lastCullPanY = null;
+  let lastCullScale = null;
+  let lastCullTrigger = null;
+
   // DRAG STATE
   let draggedItemId = null;
   let draggedNodeIndex = null;
@@ -91,6 +97,85 @@
     // Overlay is appended last so it sits on top of injected Svelte Layers
     overlayContainer = new PIXI.Container();
     viewportContainer.addChild(overlayContainer);
+
+    // --- GPU OPTIMIZATION: VIEWPORT CULLING TICKER ---
+    pixiApp.ticker.add(() => {
+      if (!activeMap || !viewportContainer) return;
+
+      const currentTrigger = mapStore.updateTrigger;
+
+      // Only perform expensive bounds checks if the camera moved or the map updated
+      if (
+        panX === lastCullPanX &&
+        panY === lastCullPanY &&
+        scale === lastCullScale &&
+        currentTrigger === lastCullTrigger
+      ) {
+        return;
+      }
+
+      lastCullPanX = panX;
+      lastCullPanY = panY;
+      lastCullScale = scale;
+      lastCullTrigger = currentTrigger;
+
+      const cw = window.innerWidth;
+      const ch = window.innerHeight;
+
+      // Calculate active viewing frustum with a generous 500px offscreen safety buffer
+      const buffer = 500 / scale;
+      const cameraLeft = -panX / scale - buffer;
+      const cameraRight = (cw - panX) / scale + buffer;
+      const cameraTop = -panY / scale - buffer;
+      const cameraBottom = (ch - panY) / scale + buffer;
+
+      const applyCulling = (node) => {
+        if (!node || !node.children) return;
+
+        for (const child of node.children) {
+          // Skip the drafting overlay and the core map image itself
+          if (child === mapSprite || child === overlayContainer) continue;
+
+          if (child.children && child.children.length > 0) {
+            // It is a structural container (like EntitiesLayer), recurse deeper
+            applyCulling(child);
+          } else {
+            // Leaf Display Object (Sprite, Graphic, Particle)
+            const bounds = child.getLocalBounds();
+
+            // Bypass culling for massive objects (Grid, Global Weather, Fog of War masks)
+            if (bounds.width > 4000 || bounds.height > 4000) {
+              child.renderable = true;
+              continue;
+            }
+
+            // Map local geometric bounds to global world coordinates
+            const globalLeft = child.x + bounds.x;
+            const globalRight = child.x + bounds.x + bounds.width;
+            const globalTop = child.y + bounds.y;
+            const globalBottom = child.y + bounds.y + bounds.height;
+
+            // If the item's bounding box is entirely outside the camera frustum, disable rendering
+            if (
+              globalRight < cameraLeft ||
+              globalLeft > cameraRight ||
+              globalBottom < cameraTop ||
+              globalTop > cameraBottom
+            ) {
+              child.renderable = false;
+            } else {
+              child.renderable = true;
+            }
+          }
+        }
+      };
+
+      // Traverse all injected layer containers
+      for (const layer of viewportContainer.children) {
+        if (layer === mapSprite || layer === overlayContainer) continue;
+        applyCulling(layer);
+      }
+    });
 
     isPixiReady = true;
   });
@@ -533,6 +618,10 @@
       const ext = file.name.split(".").pop().toLowerCase();
       if (["png", "jpg", "jpeg", "webp"].includes(ext)) {
         mapStore.importImageAsMap(file);
+        return;
+      } else if (ext === "uvtt2a") {
+        const coords = getGridCoordinates(e.clientX, e.clientY, true, "select");
+        mapStore.loadCompoundAssetFromFile(file, coords.exactX, coords.exactY);
         return;
       } else if (["dd2vtt", "uvtt", "json", "txt"].includes(ext)) {
         file.text().then((text) => {
@@ -1262,6 +1351,10 @@
     </button>
     <button class="context-btn" onclick={() => mapStore.adjustZIndex(-1)}>
       ⬇️ Send Backward
+    </button>
+    <div class="context-divider"></div>
+    <button class="context-btn" onclick={() => mapStore.packCompoundAsset()}>
+      📦 Pack to .uvtt2a Asset
     </button>
     <div class="context-divider"></div>
     <button
