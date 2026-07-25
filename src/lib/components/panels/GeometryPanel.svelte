@@ -42,6 +42,59 @@
 </script>
 
 {#if displayCategory === "wall"}
+  {@const hasWallSelected = mapStore.selectedItemIds.length > 0}
+  {@const pointCount = activeConf.path ? activeConf.path.length : 0}
+  {@const canSmooth = pointCount >= 3}
+
+  <!-- BULLETPROOF BEZIER CHECKBOX -->
+  <div
+    style="margin-bottom: 12px; background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.2); padding: 10px; border-radius: 6px;"
+  >
+    <label
+      style="display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 0; cursor: {!hasWallSelected ||
+      !canSmooth
+        ? 'not-allowed'
+        : 'pointer'}; opacity: {!hasWallSelected || !canSmooth ? 0.5 : 1};"
+    >
+      <input
+        type="checkbox"
+        style="cursor: pointer; width: 14px; height: 14px; accent-color: #00f0ff;"
+        checked={!!activeConf.isBezier}
+        disabled={!hasWallSelected || !canSmooth}
+        onchange={(e) => {
+          if (e.target.checked) {
+            mapStore.smoothSelectedWalls();
+          } else {
+            handlePropChange("wall", "isBezier", false);
+          }
+        }}
+      />
+      <span style="color: #00f0ff; font-weight: bold; font-size: 12px;"
+        >Smooth Path (Bezier Curve)</span
+      >
+    </label>
+
+    {#if !hasWallSelected}
+      <p
+        style="font-size: 11px; font-style: italic; color: #94a3b8; margin: 6px 0 0 0; line-height: 1.4;"
+      >
+        Select an existing wall to apply smoothing.
+      </p>
+    {:else if !canSmooth}
+      <p
+        style="font-size: 11px; font-style: italic; color: #ef4444; margin: 6px 0 0 0; line-height: 1.4;"
+      >
+        ⚠️ Curves require a wall with at least 3 points.
+      </p>
+    {:else}
+      <p
+        style="font-size: 11px; color: #94a3b8; margin: 6px 0 0 0; line-height: 1.4;"
+      >
+        Applies a cubic Bezier smoothing algorithm.
+      </p>
+    {/if}
+  </div>
+
   <label>
     <span>Wall Collision Presets:</span>
     <select
