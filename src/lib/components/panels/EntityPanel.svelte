@@ -1,20 +1,21 @@
 <!-- 
-  @component EntityPanel
-  Dynamic property inspector for map entities (Props, Lights, Spawns, Audio, Emitters)[cite: 19].
-  Acts as a dual-purpose UI: if items are selected on the canvas, it edits their specific properties in real-time.
-  If no items are selected, it acts as a configuration panel for the active placement tool's default settings[cite: 19].
+  @component EventPanel
+  The master property inspector for architectural geometry and interactive events[cite: 3].
+  Acts as a contextual UI: if items are selected on the canvas, it renders the specific 
+  configuration inputs for their category (Wall, Portal, Roof, Event, etc.)[cite: 3].
+  Includes advanced interactive wiring UI for binding logic triggers to target entities[cite: 3].
 -->
 <script>
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
 
   /**
-   * Dispatches property updates to the central map store[cite: 19].
-   * If items are actively selected, it applies the change to all selected items (supporting multi-edit)[cite: 19].
-   * Otherwise, it updates the default settings blueprint for the active tool[cite: 19].
+   * Dispatches property updates to the central map store[cite: 3].
+   * If items are actively selected, it applies the change to all selected items (supporting multi-edit)[cite: 3].
+   * Otherwise, it updates the default settings blueprint for the active placement tool[cite: 3].
    *
-   * @param {string} category - The entity category (e.g., 'light', 'audio')[cite: 19].
-   * @param {string} keyPath - The dot-notation JSON path pointing to the property[cite: 19].
-   * @param {any} value - The new value to apply[cite: 19].
+   * @param {string} category - The entity/geometry category (e.g., 'event', 'wall')[cite: 3].
+   * @param {string} keyPath - The dot-notation JSON path pointing to the specific property[cite: 3].
+   * @param {any} value - The new value to apply[cite: 3].
    */
   function handlePropChange(category, keyPath, value) {
     if (mapStore.selectedItemIds.length > 0) {
@@ -27,15 +28,15 @@
   }
 
   /**
-   * Determines the data context for the property panel by scanning the active map manifest[cite: 19].
+   * Determines the data context for the property panel by scanning the active map manifest[cite: 3].
    *
-   * @returns {{cat: string, data: Object}} The category and data object to bind the UI controls to[cite: 19].
+   * @returns {{cat: string, data: Object}} The category and data object to bind the UI controls to[cite: 3].
    */
   function getSelectionContext() {
     const ids = mapStore.selectedItemIds;
     const tool = mapStore.activeTool;
 
-    // Fallback to the active tool's default settings if nothing is selected[cite: 19]
+    // Fallback to the active tool's default settings if nothing is selected[cite: 3]
     if (!ids || ids.length === 0)
       return { cat: tool, data: mapStore.defaultSettings[tool] || {} };
 
@@ -43,8 +44,9 @@
     const m = mapStore.activeMap?.manifest;
     if (!m) return { cat: tool, data: {} };
 
-    // Scan manifest entity arrays to match the selected UUID and determine its category[cite: 19]
     let item;
+
+    // --- Scan Entities ---[cite: 3]
     if ((item = m.entities?.lights?.find((i) => i.id === id)))
       return { cat: "light", data: item };
     if ((item = m.entities?.audio?.zones?.find((i) => i.id === id)))
@@ -55,14 +57,23 @@
       return { cat: "spawn", data: item };
     if ((item = m.entities?.props?.find((i) => i.id === id)))
       return { cat: "prop", data: item };
+    if ((item = m.entities?.events?.find((i) => i.id === id)))
+      return { cat: "event", data: item };
+
+    // --- Scan Geometry ---[cite: 3]
+    if ((item = m.geometry?.walls?.find((i) => i.id === id)))
+      return { cat: "wall", data: item };
+    if ((item = m.geometry?.portals?.find((i) => i.id === id)))
+      return { cat: "portal", data: item };
+    if ((item = m.geometry?.overhead?.find((i) => i.id === id)))
+      return { cat: "roof", data: item };
 
     return { cat: tool, data: mapStore.defaultSettings[tool] || {} };
   }
 
-  // --- SVELTE 5 REACTIVE BINDINGS ---
-  // Hooked into the mapStore's manual update trigger to ensure the UI refreshes when external edits occur[cite: 19]
+  // --- SVELTE 5 REACTIVE BINDINGS ---[cite: 3]
   let ctx = $derived.by(() => {
-    let _ = mapStore.updateTrigger;
+    let _ = mapStore.updateTrigger; // Hooks into the mapStore's manual update trigger[cite: 3]
     return getSelectionContext();
   });
 
@@ -71,7 +82,7 @@
 </script>
 
 <!-- ========================================== -->
-<!-- PROP & TOKEN CONFIGURATION                 -->
+<!-- PROP CONFIGURATION                         -->
 <!-- ========================================== -->
 {#if displayCategory === "prop"}
   <label>
@@ -130,6 +141,336 @@
         handlePropChange("prop", "position.z", parseFloat(e.target.value))}
     />
   </label>
+
+  <!-- ========================================== -->
+  <!-- WALL CONFIGURATION                         -->
+  <!-- ========================================== -->
+{:else if displayCategory === "wall"}
+  <label>
+    <span>Wall Type:</span>
+    <select
+      value={activeConf.properties?.type || "standard"}
+      onchange={(e) =>
+        handlePropChange("wall", "properties.type", e.target.value)}
+    >
+      <option value="standard">Standard (Blocks Movement & Vision)</option>
+      <option value="invisible">Invisible (Blocks Movement Only)</option>
+      <option value="terrain">Terrain (Blocks Movement, Partial Vision)</option>
+      <option value="ethereal">Ethereal (Blocks Vision, Allows Movement)</option
+      >
+    </select>
+  </label>
+  <label>
+    <span>Bottom Elevation:</span>
+    <input
+      type="number"
+      step="0.5"
+      value={activeConf.properties?.bottom ?? 0.0}
+      onchange={(e) =>
+        handlePropChange(
+          "wall",
+          "properties.bottom",
+          parseFloat(e.target.value),
+        )}
+    />
+  </label>
+  <label>
+    <span>Top Elevation:</span>
+    <input
+      type="number"
+      step="0.5"
+      value={activeConf.properties?.top ?? 10.0}
+      onchange={(e) =>
+        handlePropChange("wall", "properties.top", parseFloat(e.target.value))}
+    />
+  </label>
+
+  <!-- ========================================== -->
+  <!-- PORTAL (DOOR/WINDOW) CONFIGURATION         -->
+  <!-- ========================================== -->
+{:else if displayCategory === "portal"}
+  <label>
+    <span>Portal Type:</span>
+    <select
+      value={activeConf.properties?.type || "door"}
+      onchange={(e) =>
+        handlePropChange("portal", "properties.type", e.target.value)}
+    >
+      <option value="door">Standard Door</option>
+      <option value="window">Window</option>
+      <option value="secret">Secret Door</option>
+    </select>
+  </label>
+  <label>
+    <span>State:</span>
+    <select
+      value={activeConf.properties?.state || "closed"}
+      onchange={(e) =>
+        handlePropChange("portal", "properties.state", e.target.value)}
+    >
+      <option value="closed">Closed</option>
+      <option value="open">Open</option>
+      <option value="locked">Locked</option>
+      <option value="broken">Broken / Smashed</option>
+    </select>
+  </label>
+  <label>
+    <span>Bottom Elevation:</span>
+    <input
+      type="number"
+      step="0.5"
+      value={activeConf.properties?.bottom ?? 0.0}
+      onchange={(e) =>
+        handlePropChange(
+          "portal",
+          "properties.bottom",
+          parseFloat(e.target.value),
+        )}
+    />
+  </label>
+  <label>
+    <span>Top Elevation:</span>
+    <input
+      type="number"
+      step="0.5"
+      value={activeConf.properties?.top ?? 10.0}
+      onchange={(e) =>
+        handlePropChange(
+          "portal",
+          "properties.top",
+          parseFloat(e.target.value),
+        )}
+    />
+  </label>
+
+  <!-- ========================================== -->
+  <!-- ROOF (OVERHEAD) CONFIGURATION              -->
+  <!-- ========================================== -->
+{:else if displayCategory === "roof"}
+  <label class="checkbox-row">
+    <input
+      type="checkbox"
+      checked={activeConf.properties?.hidden || false}
+      onchange={(e) =>
+        handlePropChange("roof", "properties.hidden", e.target.checked)}
+    />
+    <span>Hidden (GM Only)</span>
+  </label>
+  <label>
+    <span>Roof Tint:</span>
+    <input
+      type="color"
+      value={activeConf.properties?.tint || "#475569"}
+      onchange={(e) =>
+        handlePropChange("roof", "properties.tint", e.target.value)}
+    />
+  </label>
+  <label>
+    <span>Opacity (%):</span>
+    <div class="slider-row">
+      <input
+        type="range"
+        min="0"
+        max="100"
+        value={activeConf.properties?.opacity ?? 100}
+        oninput={(e) =>
+          handlePropChange(
+            "roof",
+            "properties.opacity",
+            parseFloat(e.target.value),
+          )}
+      />
+      <input
+        type="number"
+        min="0"
+        max="100"
+        value={activeConf.properties?.opacity ?? 100}
+        onchange={(e) =>
+          handlePropChange(
+            "roof",
+            "properties.opacity",
+            parseFloat(e.target.value),
+          )}
+      />
+    </div>
+  </label>
+  <label>
+    <span>Bottom Elevation:</span>
+    <input
+      type="number"
+      step="0.5"
+      value={activeConf.properties?.bottom ?? 10.0}
+      onchange={(e) =>
+        handlePropChange(
+          "roof",
+          "properties.bottom",
+          parseFloat(e.target.value),
+        )}
+    />
+  </label>
+  <label>
+    <span>Top Elevation:</span>
+    <input
+      type="number"
+      step="0.5"
+      value={activeConf.properties?.top ?? 20.0}
+      onchange={(e) =>
+        handlePropChange("roof", "properties.top", parseFloat(e.target.value))}
+    />
+  </label>
+
+  <!-- ========================================== -->
+  <!-- INTERACTIVE EVENT CONFIGURATION            -->
+  <!-- ========================================== -->
+{:else if displayCategory === "event"}
+  <label>
+    <span>Event Name:</span>
+    <input
+      type="text"
+      value={activeConf.name || "New Event"}
+      oninput={(e) => handlePropChange("event", "name", e.target.value)}
+    />
+  </label>
+  <label>
+    <span>Event Type:</span>
+    <select
+      value={activeConf.eventType || "State Toggle"}
+      onchange={(e) => handlePropChange("event", "eventType", e.target.value)}
+    >
+      <option value="State Toggle">State Toggle (Doors/Lights)</option>
+      <option value="Teleport">Teleport</option>
+      <option value="Stairs/Ladder">Stairs / Ladder</option>
+      <option value="Audio Trigger">Audio Trigger</option>
+    </select>
+  </label>
+  <label>
+    <span>Activation Method:</span>
+    <select
+      value={activeConf.activation || "proximity"}
+      onchange={(e) => handlePropChange("event", "activation", e.target.value)}
+    >
+      <option value="proximity">Proximity (Enter Zone)</option>
+      <option value="click">Manual Click</option>
+    </select>
+  </label>
+
+  <!-- EVENT: WIRING TARGETS -->
+  {#if activeConf.eventType === "State Toggle" || activeConf.eventType === "Audio Trigger"}
+    <label>
+      <span>Target Action:</span>
+      <select
+        value={activeConf.target_action || "toggle_visibility"}
+        onchange={(e) =>
+          handlePropChange("event", "target_action", e.target.value)}
+      >
+        <option value="toggle_visibility">Toggle Visibility</option>
+        <option value="open_close">Open / Close (Doors)</option>
+        <option value="lock_unlock">Lock / Unlock</option>
+        <option value="turn_on_off">Turn On / Off (Lights)</option>
+        <option value="play_stop">Play / Stop (Audio)</option>
+      </select>
+    </label>
+
+    <div class="routing-box">
+      <span class="routing-title">Wire Targets</span>
+      <p class="helper-text">
+        Currently Bound: <strong style="color:#00f0ff;"
+          >{activeConf.target_entity_ids?.length || 0}</strong
+        > entities
+      </p>
+
+      <!-- Multi-select logic: User shift-clicks targets on the canvas to bind them[cite: 3] -->
+      {#if mapStore.selectedItemIds.length > 1}
+        <button
+          class="wire-btn"
+          onclick={() => {
+            const targets = mapStore.selectedItemIds.filter(
+              (id) => id !== activeConf.id,
+            );
+            handlePropChange("event", "target_entity_ids", targets);
+          }}
+        >
+          🔗 Bind {mapStore.selectedItemIds.length - 1} Selected Entities
+        </button>
+      {:else}
+        <p class="helper-text" style="font-style: italic; margin-top: 4px;">
+          Shift-click other entities (lights, doors) while this event is
+          selected to bind them.
+        </p>
+      {/if}
+
+      {#if activeConf.target_entity_ids?.length > 0}
+        <button
+          class="clear-btn"
+          onclick={() => handlePropChange("event", "target_entity_ids", [])}
+          >❌ Clear Targets</button
+        >
+      {/if}
+    </div>
+  {/if}
+
+  <!-- EVENT: TELEPORT ROUTING -->
+  {#if activeConf.eventType === "Teleport" || activeConf.eventType === "Stairs/Ladder"}
+    {@const targetLevel = mapStore.catalog.find(
+      (m) => m.id === (activeConf.targetFloorId || mapStore.activeMapId),
+    )}
+
+    <!-- Automates bidirectional links for multi-level dungeons[cite: 3] -->
+    {#if mapStore.selectedItemIds.length === 0}
+      <label class="checkbox-row">
+        <input
+          type="checkbox"
+          checked={activeConf.createReturnSpawn || false}
+          onchange={(e) =>
+            handlePropChange("event", "createReturnSpawn", e.target.checked)}
+        />
+        <span>Create return Spawn point (adjacent to Event)</span>
+      </label>
+
+      <label class="checkbox-row">
+        <input
+          type="checkbox"
+          checked={activeConf.autoCreateMatch || false}
+          onchange={(e) =>
+            handlePropChange("event", "autoCreateMatch", e.target.checked)}
+        />
+        <span>Auto-Create Reciprocal Return Link</span>
+      </label>
+    {/if}
+
+    <div class="routing-box">
+      <span class="routing-title">Destination Routing</span>
+      <label>
+        <span>Target Map/Floor:</span>
+        <select
+          value={activeConf.targetFloorId || mapStore.activeMapId}
+          onchange={(e) => {
+            handlePropChange("event", "targetFloorId", e.target.value);
+            // Reset the spawn selection when the map level changes[cite: 3]
+            handlePropChange("event", "targetSpawnId", "");
+          }}
+        >
+          {#each mapStore.catalog as level}
+            <option value={level.id}>{level.filename || "Unnamed Level"}</option
+            >
+          {/each}
+        </select>
+      </label>
+      <label>
+        <span>Target Landing Zone:</span>
+        <select
+          value={activeConf.targetSpawnId || ""}
+          onchange={(e) =>
+            handlePropChange("event", "targetSpawnId", e.target.value)}
+        >
+          <option value="">-- Select Spawn --</option>
+          {#each targetLevel?.manifest?.entities?.landing_zones || [] as spawn}
+            <option value={spawn.id}>{spawn.name || "Unnamed Spawn"}</option>
+          {/each}
+        </select>
+      </label>
+    </div>
+  {/if}
 
   <!-- ========================================== -->
   <!-- LIGHTING CONFIGURATION                     -->
@@ -335,7 +676,7 @@
   {/if}
 
   <!-- ========================================== -->
-  <!-- SPAWN / LANDING ZONE CONFIGURATION         -->
+  <!-- SPAWN POINT CONFIGURATION                  -->
   <!-- ========================================== -->
 {:else if displayCategory === "spawn"}
   <label>
@@ -648,6 +989,10 @@
       />
     </div>
   </label>
+
+  <!-- ========================================== -->
+  <!-- FALLBACK CONFIGURATION                     -->
+  <!-- ========================================== -->
 {:else}
   <p class="helper-text">
     Basic clone/translate capabilities active. Specific properties coming soon.
@@ -711,5 +1056,55 @@
     color: #94a3b8;
     margin: 0;
     line-height: 1.4;
+  }
+
+  /* Routing UI Styles */
+  .routing-box {
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 6px;
+    padding: 10px;
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .routing-title {
+    font-size: 12px;
+    font-weight: bold;
+    color: #cbd5e1;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #1e293b;
+    padding-bottom: 4px;
+    margin-bottom: 4px;
+  }
+  .wire-btn {
+    background: #0ea5e9;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .wire-btn:hover {
+    background: #0284c7;
+  }
+  .clear-btn {
+    background: transparent;
+    color: #ef4444;
+    border: 1px solid #ef4444;
+    border-radius: 4px;
+    padding: 6px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 4px;
+  }
+  .clear-btn:hover {
+    background: rgba(239, 68, 68, 0.1);
   }
 </style>
