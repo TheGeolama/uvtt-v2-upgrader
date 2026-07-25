@@ -87,7 +87,13 @@
       onmouseover={(e) => {
         if (hasWallSelected && canSmooth) e.target.style.background = "#0284c7";
       }}
+      onfocus={(e) => {
+        if (hasWallSelected && canSmooth) e.target.style.background = "#0284c7";
+      }}
       onmouseout={(e) => {
+        if (hasWallSelected && canSmooth) e.target.style.background = "#0ea5e9";
+      }}
+      onblur={(e) => {
         if (hasWallSelected && canSmooth) e.target.style.background = "#0ea5e9";
       }}
       onclick={() => {
