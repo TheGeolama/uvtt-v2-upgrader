@@ -63,10 +63,14 @@
         disabled={!hasWallSelected || !canSmooth}
         onchange={(e) => {
           if (e.target.checked) {
+            handlePropChange("wall", "isBezier", true);
             mapStore.smoothSelectedWalls();
           } else {
             handlePropChange("wall", "isBezier", false);
           }
+          // FORCE PIXIJS CANVAS TO IMMEDIATELY RE-RENDER
+          mapStore.updateTrigger++;
+          mapStore.redrawTick++;
         }}
       />
       <span style="color: #00f0ff; font-weight: bold; font-size: 12px;"
