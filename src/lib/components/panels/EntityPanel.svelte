@@ -134,44 +134,31 @@
     <span>Locked (Prevent Dragging & Movement)</span>
   </label>
 {:else if displayCategory === "wall"}
-  {@const hasWallSelected = mapStore.selectedItemIds.length > 0}
-  {@const pointCount = activeConf.path ? activeConf.path.length : 0}
-  {@const canSmooth = pointCount >= 3}
-
-  <label
-    class="checkbox-row"
-    style={!hasWallSelected || !canSmooth ? "opacity: 0.5;" : ""}
+  <!-- BULLETPROOF BEZIER CHECKBOX -->
+  <div
+    class="routing-box"
+    style="margin-top: 0; margin-bottom: 12px; background: rgba(56, 189, 248, 0.05); border-color: rgba(56, 189, 248, 0.2);"
   >
-    <input
-      type="checkbox"
-      checked={activeConf.isBezier || false}
-      disabled={!hasWallSelected || !canSmooth}
-      onchange={(e) => {
-        if (e.target.checked) {
-          mapStore.smoothSelectedWalls();
-        } else {
-          handlePropChange("wall", "isBezier", false);
-        }
-      }}
-    />
-    <span>Smooth Path (Bezier Curve)</span>
-  </label>
-
-  {#if !hasWallSelected}
-    <p
-      class="helper-text"
-      style="font-style: italic; margin-top: 0; margin-bottom: 8px;"
-    >
-      Select an existing wall to apply smoothing.
+    <label class="checkbox-row" style="margin: 0;">
+      <input
+        type="checkbox"
+        checked={!!activeConf.isBezier}
+        onchange={(e) => {
+          if (e.target.checked) {
+            mapStore.smoothSelectedWalls();
+          } else {
+            handlePropChange("wall", "isBezier", false);
+          }
+        }}
+      />
+      <span style="color: #00f0ff; font-weight: bold;"
+        >Smooth Path (Bezier Curve)</span
+      >
+    </label>
+    <p class="helper-text" style="margin-top: 6px;">
+      Ensure your multi-point wall is actively selected to apply smoothing.
     </p>
-  {:else if !canSmooth}
-    <p
-      class="helper-text"
-      style="color: #ef4444; font-style: italic; margin-top: 0; margin-bottom: 8px;"
-    >
-      ⚠️ Curves require a wall with at least 3 points.
-    </p>
-  {/if}
+  </div>
 
   <label>
     <span>Wall Type:</span>
