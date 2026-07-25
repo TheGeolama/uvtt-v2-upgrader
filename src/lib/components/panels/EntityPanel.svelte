@@ -134,14 +134,18 @@
     <span>Locked (Prevent Dragging & Movement)</span>
   </label>
 {:else if displayCategory === "wall"}
+  {@const hasWallSelected = mapStore.selectedItemIds.length > 0}
+  {@const pointCount = activeConf.path ? activeConf.path.length : 0}
+  {@const canSmooth = pointCount >= 3}
+
   <label
     class="checkbox-row"
-    style={mapStore.selectedItemIds.length === 0 ? "opacity: 0.5;" : ""}
+    style={!hasWallSelected || !canSmooth ? "opacity: 0.5;" : ""}
   >
     <input
       type="checkbox"
       checked={activeConf.isBezier || false}
-      disabled={mapStore.selectedItemIds.length === 0}
+      disabled={!hasWallSelected || !canSmooth}
       onchange={(e) => {
         if (e.target.checked) {
           mapStore.smoothSelectedWalls();
@@ -152,14 +156,23 @@
     />
     <span>Smooth Path (Bezier Curve)</span>
   </label>
-  {#if mapStore.selectedItemIds.length === 0}
+
+  {#if !hasWallSelected}
     <p
       class="helper-text"
       style="font-style: italic; margin-top: 0; margin-bottom: 8px;"
     >
       Select an existing wall to apply smoothing.
     </p>
+  {:else if !canSmooth}
+    <p
+      class="helper-text"
+      style="color: #ef4444; font-style: italic; margin-top: 0; margin-bottom: 8px;"
+    >
+      ⚠️ Curves require a wall with at least 3 points.
+    </p>
   {/if}
+
   <label>
     <span>Wall Type:</span>
     <select
