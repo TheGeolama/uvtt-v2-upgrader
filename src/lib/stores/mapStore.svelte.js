@@ -30,6 +30,7 @@ class MapStore {
     selectedItemIds = $state([]);
     clipboard = $state([]);
     lightingPreview = $state(false);
+    isSimulationModeActive = $state(false); // NEW: Desktop Pro VTT Simulation Mode
     activeTool = $state("select");
     draftingMode = $state("straight"); 
     audioBlobs = $state({}); 
@@ -39,6 +40,8 @@ class MapStore {
     mouseX = $state(0.00);
     mouseY = $state(0.00);
     zoomScale = $state(100);
+    cameraX = $state(0.00); // Exposes Camera X for Cinematic Exporter
+    cameraY = $state(0.00); // Exposes Camera Y for Cinematic Exporter
     
     // --- GRID ALIGNMENT STATE ---
     gridAlignBoxes = $state([]);
@@ -62,14 +65,14 @@ class MapStore {
 
     // --- SCHEMA COMPLIANT DEFAULTS ---
     defaultSettings = $state({
-        wall: { properties: { type: 'standard', bottom: 0.0, top: 10.0, visibility: 'visible' } },
-        portal: { properties: { type: 'door', state: 'closed', bottom: 0.0, top: 10.0, visibility: 'visible' } },
-        roof: { properties: { tint: '#475569', opacity: 100, hidden: false, bottom: 10.0, top: 20.0, visibility: 'visible' } },
+        wall: { height: { bottom: 0.0, top: 10.0 }, properties: { type: 'standard', visibility: 'visible' } },
+        portal: { height: { bottom: 0.0, top: 10.0 }, properties: { type: 'door', state: 'closed', visibility: 'visible' } },
+        roof: { height: { bottom: 10.0, top: 20.0 }, properties: { tint: '#475569', opacity: 100, hidden: false, visibility: 'visible' } },
         light: { type: 'point', position: { z: 0 }, properties: { color: '#ffffff', intensity: 1.0, decay_model: 'inverse_square', radius: { bright: 5.0, dim: 10.0 }, animation: { profile: 'none', speed: 0.5, intensity_variance: 0.2 }, rotation: 0, cone_angle: 60, visibility: 'visible' } },
         spawn: { name: 'New Spawn', shape: 'circle', is_default: false, heading_degrees: 0.0, properties: { visibility: 'visible' } },
         event: { name: 'New Event', eventType: 'State Toggle', activation: 'proximity', trigger_bounds: { radius: 0.5 }, targetSpawnId: "", autoCreateMatch: false, targetFloorId: "", target_entity_ids: [], target_action: "toggle_visibility", properties: { visibility: 'visible' } },
         audio: { track: "", volume: 100, radius: 5, inner_radius: 2.5, muffledByWalls: true, properties: { visibility: 'visible' } },
-        emitter: { type: 'weather', style: 'rain', isGlobal: false, layering: 'above', tint: '#ffffff', scale: 100, direction: 180, speed: 50, intensity: 50, variance: 10, graphic: '', position: { z: 0 }, properties: { visibility: 'visible' } },
+        emitter: { type: 'weather', style: 'rain', height: { bottom: 0.0, top: 40.0 }, isGlobal: false, layering: 'above', tint: '#ffffff', scale: 100, direction: 180, speed: 50, intensity: 50, variance: 10, graphic: '', position: { z: 0 }, properties: { visibility: 'visible' } },
         prop: { scale: 100, rotation: 0, position: { z: 0 }, properties: { visibility: 'visible', z_index: 0, locked: false } },
         asset: {} 
     });
@@ -197,13 +200,18 @@ class MapStore {
         this.updateTrigger++;
     }
 
-    calculateGridAlignment() {
-        if (!this.activeMap || this.gridAlignBoxes.length === 0) return;
+    /**
+     * Applies rubber-sheeting math based on user-drawn calibration boxes.
+     * @param {number} squares - The number of grid squares each box represents. Default is 1.
+     */
+    calculateGridAlignment(squares = 1) {
+        if (!this.activeMap || this.gridAlignBoxes.length === 0 || squares <= 0) return;
         const boxes = this.gridAlignBoxes;
         
         let sumW = 0, sumH = 0;
         let validCount = 0;
 
+        // 1. Calculate the raw pixel dimensions of the drawn boxes
         boxes.forEach(b => {
             const w = Math.abs(b.ex - b.sx);
             const h = Math.abs(b.ey - b.sy);
@@ -219,9 +227,14 @@ class MapStore {
             return;
         }
 
-        const newPpgX = Math.max(10, sumW / validCount);
-        const newPpgY = Math.max(10, sumH / validCount);
+        // 2. Average the boxes and divide by the number of grid squares to find the new Pixels Per Grid
+        const averageBoxWidth = sumW / validCount;
+        const averageBoxHeight = sumH / validCount;
+
+        const newPpgX = Math.max(10, averageBoxWidth / squares);
+        const newPpgY = Math.max(10, averageBoxHeight / squares);
         
+        // 3. Use the first drawn box as the origin anchor
         const anchorX = Math.min(boxes[0].sx, boxes[0].ex);
         const anchorY = Math.min(boxes[0].sy, boxes[0].ey);
         
@@ -229,21 +242,25 @@ class MapStore {
         const oldPpgX = Number(res.pixels_per_grid) || 70;
         const oldPpgY = Number(res.pixels_per_grid_y) || oldPpgX;
         
-        const pixelWidth = res.map_size[0] * oldPpgX;
-        const pixelHeight = res.map_size[1] * oldPpgY;
+        // Preserve old pixel dimensions to recalculate map_size array
+        const pixelWidth = (res.map_size[0] || 50) * oldPpgX;
+        const pixelHeight = (res.map_size[1] || 50) * oldPpgY;
         
+        // 4. Apply the new scaling math
         res.pixels_per_grid = newPpgX;
         res.pixels_per_grid_y = newPpgY; 
         
         res.map_size[0] = pixelWidth / newPpgX;
         res.map_size[1] = pixelHeight / newPpgY;
         
+        // 5. Align the origin to the top-left corner of the drawn box
         const modX = ((anchorX % newPpgX) + newPpgX) % newPpgX;
         const modY = ((anchorY % newPpgY) + newPpgY) % newPpgY;
         
         res.map_offset_x = -modX;
         res.map_offset_y = -modY;
 
+        // 6. Clear the drawing tools and force a full system redraw
         this.gridAlignBoxes = [];
         this.setTool('select');
         this.pushHistory("Rubber Sheet Grid Alignment");
@@ -286,9 +303,27 @@ class MapStore {
         this.updateTrigger++;
     }
 
-    // --- VISION CONTROLLER METHODS ---
+    // --- VISION & SIMULATION CONTROLLER METHODS ---
     toggleVision() {
         this.vision.enabled = !this.vision.enabled;
+        this.updateTrigger++;
+    }
+    
+    toggleLightingPreview() {
+        this.lightingPreview = !this.lightingPreview;
+        this.updateTrigger++;
+    }
+
+    // NEW: VTT Simulation Mode Toggle
+    toggleSimulationMode() {
+        this.isSimulationModeActive = !this.isSimulationModeActive;
+        
+        // Auto-deselect tools/items to clean up the UI
+        if (this.isSimulationModeActive) {
+            this.selectedItemIds = [];
+            this.activeTool = "select"; 
+            this.closeContextMenu();
+        }
         this.updateTrigger++;
     }
 
@@ -335,7 +370,9 @@ class MapStore {
 
     downloadBlob(filename, blob) { downloadBlob(filename, blob); }
     downloadJSON(filename, data) { downloadJSON(filename, data); }
-    saveProject() { saveProject(this); }
+    
+    // NEW FIX: All IO delegates must `await` and `return` their promises to block the Svelte UI spinner!
+    async saveProject() { return await saveProject(this); }
     closeProject() {
         this.catalog = [];
         this.activeMapId = null;
@@ -344,12 +381,13 @@ class MapStore {
         this.updateTrigger++;
         this.triggerAutoSave();
     }
-    exportVTT() { exportVTT(this); }
-    exportLegacyV1() { exportLegacyV1(this); }
-    exportCompoundVTT(isLegacy = false) { exportCompoundVTT(this, isLegacy); }
-    async exportSecureVTT(isCompound = false) { await exportSecureVTT(this, isCompound); }
-    async loadProjectFromFile(file) { await loadProjectFromFile(this, file); }
-    async importImageAsMap(file) { await importImageAsMap(this, file); }
+    
+    async exportVTT() { return await exportVTT(this); }
+    async exportLegacyV1() { return await exportLegacyV1(this); }
+    async exportCompoundVTT(isLegacy = false) { return await exportCompoundVTT(this, isLegacy); }
+    async exportSecureVTT(isCompound = false) { return await exportSecureVTT(this, isCompound); }
+    async loadProjectFromFile(file) { return await loadProjectFromFile(this, file); }
+    async importImageAsMap(file) { return await importImageAsMap(this, file); }
 
     // --- LEVEL MANAGEMENT ---
     setCatalog(newCatalog) {
@@ -442,11 +480,6 @@ class MapStore {
     }
 
     // --- TOOL & SELECTION ---
-    toggleLightingPreview() {
-        this.lightingPreview = !this.lightingPreview;
-        this.updateTrigger++;
-    }
-
     setTool(tool) {
         this.activeTool = tool;
         this.selectedItemIds = [];
@@ -679,6 +712,7 @@ class MapStore {
                         const newItem = {
                             id: crypto.randomUUID(),
                             path: path2,
+                            height: JSON.parse(JSON.stringify(item.height)), 
                             properties: JSON.parse(JSON.stringify(item.properties)) 
                         };
                         if (item.isBezier !== undefined) newItem.isBezier = item.isBezier;
@@ -744,13 +778,13 @@ class MapStore {
         const id = crypto.randomUUID();
         if (type === 'wall') {
             if (!activeMap.manifest.geometry.walls) activeMap.manifest.geometry.walls = [];
-            activeMap.manifest.geometry.walls.push({ id, path, isBezier, properties: JSON.parse(JSON.stringify(this.defaultSettings.wall.properties)) });
+            activeMap.manifest.geometry.walls.push({ id, path, isBezier, height: JSON.parse(JSON.stringify(this.defaultSettings.wall.height)), properties: JSON.parse(JSON.stringify(this.defaultSettings.wall.properties)) });
         } else if (type === 'portal') {
             if (!activeMap.manifest.geometry.portals) activeMap.manifest.geometry.portals = [];
-            activeMap.manifest.geometry.portals.push({ id, path, isBezier, properties: JSON.parse(JSON.stringify(this.defaultSettings.portal.properties)) });
+            activeMap.manifest.geometry.portals.push({ id, path, isBezier, height: JSON.parse(JSON.stringify(this.defaultSettings.portal.height)), properties: JSON.parse(JSON.stringify(this.defaultSettings.portal.properties)) });
         } else if (type === 'roof') {
             if (!activeMap.manifest.geometry.overhead) activeMap.manifest.geometry.overhead = [];
-            activeMap.manifest.geometry.overhead.push({ id, path, properties: JSON.parse(JSON.stringify(this.defaultSettings.roof.properties)) });
+            activeMap.manifest.geometry.overhead.push({ id, path, height: JSON.parse(JSON.stringify(this.defaultSettings.roof.height)), properties: JSON.parse(JSON.stringify(this.defaultSettings.roof.properties)) });
         }
         this.activeMap.manifest = { ...activeMap.manifest };
         this.pushHistory(`Added ${type}`);
@@ -972,6 +1006,7 @@ class MapStore {
             type: ds.type, style: ds.style,
             isGlobal: ds.isGlobal, layering: ds.layering, tint: ds.tint, scale: ds.scale,
             direction: ds.direction, speed: ds.speed, intensity: ds.intensity, variance: ds.variance, graphic: ds.graphic,
+            height: JSON.parse(JSON.stringify(ds.height)),
             properties: JSON.parse(JSON.stringify(ds.properties))
         };
         if (!activeMap.manifest.entities.emitters) activeMap.manifest.entities.emitters = [];

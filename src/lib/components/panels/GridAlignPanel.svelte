@@ -1,17 +1,12 @@
-<!-- 
-  @component GridAlignPanel
-  The grid calibration and "rubber sheeting" interface[cite: 19].
-  Allows the Game Master to precisely align a map image's baked-in grid with the 
-  mathematical VTT coordinate system[cite: 19]. Supports both manual granular tweaking 
-  (DPI scaling and pixel offsets) and an automatic "best fit" algorithm based on 
-  user-drawn calibration boxes[cite: 19].
--->
 <script>
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
 
-  // --- SVELTE 5 REACTIVE BINDINGS ---[cite: 19]
+  // --- SVELTE 5 REACTIVE BINDINGS ---
   let activeMap = $derived(mapStore.activeMap);
   let manifest = $derived(activeMap?.manifest);
+
+  // NEW: State to track how many grid squares the drawn box represents
+  let squaresCovered = $state(1);
 </script>
 
 <div
@@ -20,9 +15,6 @@
 >
   <h3 style="color: #22c55e;">📐 GRID RUBBER SHEETING</h3>
 
-  <!-- ========================================== -->
-  <!-- MANUAL CALIBRATION INPUTS                  -->
-  <!-- ========================================== -->
   <div
     style="margin-bottom: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;"
   >
@@ -110,12 +102,10 @@
     square to lock the origin.<br /><br />
     <strong>2. Scale:</strong> Adjust the DPI inputs above to stretch the grid
     away from your pin.<br /><br />
-    <strong>Or Auto-Align:</strong> Drag green boxes over 1x1 map squares.
+    <strong>Or Auto-Align:</strong> Drag green boxes over map squares. Drag over
+    a larger area (e.g. 3x3 squares) for much better scaling accuracy!
   </p>
 
-  <!-- ========================================== -->
-  <!-- MICRO-NUDGE CONTROLS                       -->
-  <!-- ========================================== -->
   <div
     style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px;"
   >
@@ -145,15 +135,23 @@
     </div>
   </div>
 
-  <!-- ========================================== -->
-  <!-- AUTO-ALIGNMENT ALGORITHM CONTROLS          -->
-  <!-- ========================================== -->
   <div style="display: flex; flex-direction: column; gap: 8px;">
-    <!-- Calculates average DPI and offset across all drawn calibration boxes[cite: 19] -->
+    <label
+      style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px;"
+    >
+      Box Size (Grid Squares)
+      <input
+        type="number"
+        min="1"
+        bind:value={squaresCovered}
+        style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 6px; border-radius: 4px; margin-bottom: 4px;"
+      />
+    </label>
+
     <button
       class="action-btn wave"
       style="justify-content: center; font-weight: bold; border-color: #22c55e; color: #22c55e;"
-      onclick={() => mapStore.calculateGridAlignment()}
+      onclick={() => mapStore.calculateGridAlignment(squaresCovered)}
       disabled={mapStore.gridAlignBoxes.length === 0}
     >
       ✅ Apply Best Fit Grid

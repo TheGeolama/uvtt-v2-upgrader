@@ -1,9 +1,9 @@
 <!-- 
   @component Toolbar
-  The primary Heads-Up Display (HUD) for the VTT engine[cite: 14].
+  The primary Heads-Up Display (HUD) for the VTT engine.
   Orchestrates all user interaction via floating panels: the top level-navigation bar, 
-  the left contextual tool palette, the right global settings panel, and the bottom CAD status bar[cite: 14].
-  Highly reactive, subscribing to the Svelte 5 `mapStore` to dynamically update UI state[cite: 14].
+  the left contextual tool palette, the right global settings panel, and the bottom CAD status bar.
+  Highly reactive, subscribing to the Svelte 5 `mapStore` to dynamically update UI state.
 -->
 <script>
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
@@ -18,12 +18,13 @@
   import HistoryPanel from "$lib/components/panels/HistoryPanel.svelte";
 
   // --- SVELTE 5 REACTIVE DERIVATIONS ---
-  // Subscribes to the mapStore to keep the UI perfectly synced with the engine state[cite: 14]
+  // Subscribes to the mapStore to keep the UI perfectly synced with the engine state
   let activeMap = $derived(mapStore.activeMap);
   let catalog = $derived(mapStore.catalog);
   let activeTool = $derived(mapStore.activeTool);
   let lightingPreview = $derived(mapStore.lightingPreview);
   let visionEnabled = $derived(mapStore.vision?.enabled);
+  let isSimulationModeActive = $derived(mapStore.isSimulationModeActive); // NEW: Bind to the Simulation State
   let manifest = $derived(activeMap?.manifest);
 
   let mouseX = $derived(mapStore.mouseX);
@@ -31,10 +32,14 @@
   let zoomScale = $derived(mapStore.zoomScale);
 
   /**
-   * Dynamically generates the HTML for the bottom status bar based on the currently active tool[cite: 14].
-   * Teaches the user the hidden keyboard shortcuts without requiring a manual[cite: 14].
+   * Dynamically generates the HTML for the bottom status bar based on the currently active tool.
+   * Teaches the user the hidden keyboard shortcuts without requiring a manual.
    */
   let hotkeyHint = $derived.by(() => {
+    if (isSimulationModeActive) {
+      return "🎬 <span style='color: #0ea5e9; font-weight: bold;'>VTT SIMULATION RUNNING</span> <span class='sep'>|</span> <span class='key'>Space+Drag:</span> Pan Camera <span class='sep'>|</span> <span class='key'>Scroll:</span> Zoom";
+    }
+
     if (visionEnabled) {
       return "🎭 <span style='color: #4ade80; font-weight: bold;'>PLAYER PREVIEW ACTIVE</span> <span class='sep'>|</span> <span class='key'>Left-Click & Drag:</span> Move Vision Token <span class='sep'>|</span> <span class='key'>Space+Drag:</span> Pan Camera";
     }
@@ -64,7 +69,7 @@
 
   /**
    * Maps raw selected UUIDs into fully hydrated object references by scanning
-   * the map manifest. Injects the item's `category` so the UI knows which config panel to render[cite: 14].
+   * the map manifest. Injects the item's `category` so the UI knows which config panel to render.
    */
   let selectedItems = $derived(
     selectedItemIds
@@ -103,14 +108,14 @@
 
   /**
    * Determines which property panel to render. Defaults to the active tool if nothing is selected,
-   * otherwise switches to the category of the first selected item[cite: 14].
+   * otherwise switches to the category of the first selected item.
    */
   let displayCategory = $derived(
     selectedItems.length > 0 ? selectedItems[0].category : activeTool,
   );
 
   /**
-   * Dispatches a tool change to the mapStore[cite: 14].
+   * Dispatches a tool change to the mapStore.
    * @param {string} tool - The internal tool identifier (e.g., 'wall', 'select').
    */
   function selectTool(tool) {
@@ -119,7 +124,7 @@
 
   /**
    * Intercepts file uploads from the hidden input button in the Top Nav Bar.
-   * Routes raw images to the DPI extraction pipeline, and parses legacy schemas[cite: 14].
+   * Routes raw images to the DPI extraction pipeline, and parses legacy schemas.
    * @param {Event} e - The HTML change event.
    */
   async function handleImportLevel(e) {
@@ -140,7 +145,7 @@
         alert("Failed to import level");
       }
     }
-    // Reset the input so the same file can be imported again if needed[cite: 14]
+    // Reset the input so the same file can be imported again if needed
     e.target.value = null;
   }
 </script>
@@ -169,58 +174,61 @@
         oninput={(e) => mapStore.renameMapLevel(activeMap.id, e.target.value)}
       />
 
-      <div class="divider"></div>
+      <!-- Hide drafting-specific top bar controls during Simulation -->
+      {#if !isSimulationModeActive}
+        <div class="divider"></div>
 
-      <!-- History Engine Hooks (Undo/Redo)[cite: 14] -->
-      <button
-        class="icon-btn"
-        disabled={!activeMap.history || activeMap.historyIndex <= 0}
-        onclick={() => mapStore.undo()}
-        title="Undo (Ctrl+Z)"
-      >
-        ↶
-      </button>
-      <button
-        class="icon-btn"
-        disabled={!activeMap.history ||
-          activeMap.historyIndex >= activeMap.history.length - 1}
-        onclick={() => mapStore.redo()}
-        title="Redo (Ctrl+Y)"
-      >
-        ↷
-      </button>
+        <!-- History Engine Hooks (Undo/Redo) -->
+        <button
+          class="icon-btn"
+          disabled={!activeMap.history || activeMap.historyIndex <= 0}
+          onclick={() => mapStore.undo()}
+          title="Undo (Ctrl+Z)"
+        >
+          ↶
+        </button>
+        <button
+          class="icon-btn"
+          disabled={!activeMap.history ||
+            activeMap.historyIndex >= activeMap.history.length - 1}
+          onclick={() => mapStore.redo()}
+          title="Redo (Ctrl+Y)"
+        >
+          ↷
+        </button>
 
-      <div class="divider"></div>
+        <div class="divider"></div>
 
-      <button
-        class="icon-btn positive"
-        onclick={() => mapStore.addMapLevel()}
-        title="Add Blank Level"
-      >
-        ➕
-      </button>
-      <label
-        class="icon-btn wave import-btn"
-        title="Import Map (.dd2vtt, .png, .jpg, .webp)"
-      >
-        📥
-        <input
-          type="file"
-          accept=".dd2vtt,.uvtt,.json,.txt,.png,.jpg,.jpeg,.webp"
-          style="display: none;"
-          onchange={handleImportLevel}
-        />
-      </label>
-      <button
-        class="icon-btn negative"
-        onclick={() => {
-          if (confirm("Delete this level forever?"))
-            mapStore.deleteMapLevel(activeMap.id);
-        }}
-        title="Delete Level"
-      >
-        🗑️
-      </button>
+        <button
+          class="icon-btn positive"
+          onclick={() => mapStore.addMapLevel()}
+          title="Add Blank Level"
+        >
+          ➕
+        </button>
+        <label
+          class="icon-btn wave import-btn"
+          title="Import Map (.dd2vtt, .png, .jpg, .webp)"
+        >
+          📥
+          <input
+            type="file"
+            accept=".dd2vtt,.uvtt,.json,.txt,.png,.jpg,.jpeg,.webp"
+            style="display: none;"
+            onchange={handleImportLevel}
+          />
+        </label>
+        <button
+          class="icon-btn negative"
+          onclick={() => {
+            if (confirm("Delete this level forever?"))
+              mapStore.deleteMapLevel(activeMap.id);
+          }}
+          title="Delete Level"
+        >
+          🗑️
+        </button>
+      {/if}
     </div>
   </div>
 
@@ -229,93 +237,96 @@
   <!-- ========================================== -->
   <div class="toolbar-wrapper">
     <div class="tool-selector">
-      <div class="tool-group">
-        <span class="group-label">📐 ARCHITECTURE</span>
-        <button
-          class:active={activeTool === "select"}
-          onclick={() => selectTool("select")}
-          aria-label="Selection Tool"
-        >
-          <span>🔍</span> Select
-        </button>
-        <button
-          class:active={activeTool === "wall"}
-          onclick={() => selectTool("wall")}
-          aria-label="Draw Walls"
-        >
-          <span>🧱</span> Wall
-        </button>
-        <button
-          class:active={activeTool === "portal"}
-          onclick={() => selectTool("portal")}
-          aria-label="Draw Portals"
-        >
-          <span>🚪</span> Portal
-        </button>
-        <button
-          class:active={activeTool === "roof"}
-          onclick={() => selectTool("roof")}
-          aria-label="Draw Roofs"
-        >
-          <span>🌳</span> Roof
-        </button>
-        <button
-          class={activeTool === "grid_align" ? "active" : ""}
-          onclick={() => mapStore.setTool("grid_align")}
-        >
-          📐 Align Grid
-        </button>
-      </div>
+      <!-- HIDE CAD TOOLS DURING SIMULATION -->
+      {#if !isSimulationModeActive}
+        <div class="tool-group">
+          <span class="group-label">📐 ARCHITECTURE</span>
+          <button
+            class:active={activeTool === "select"}
+            onclick={() => selectTool("select")}
+            aria-label="Selection Tool"
+          >
+            <span>🔍</span> Select
+          </button>
+          <button
+            class:active={activeTool === "wall"}
+            onclick={() => selectTool("wall")}
+            aria-label="Draw Walls"
+          >
+            <span>🧱</span> Wall
+          </button>
+          <button
+            class:active={activeTool === "portal"}
+            onclick={() => selectTool("portal")}
+            aria-label="Draw Portals"
+          >
+            <span>🚪</span> Portal
+          </button>
+          <button
+            class:active={activeTool === "roof"}
+            onclick={() => selectTool("roof")}
+            aria-label="Draw Roofs"
+          >
+            <span>🌳</span> Roof
+          </button>
+          <button
+            class={activeTool === "grid_align" ? "active" : ""}
+            onclick={() => mapStore.setTool("grid_align")}
+          >
+            📐 Align Grid
+          </button>
+        </div>
 
-      <div class="tool-group">
-        <span class="group-label">💡 ENTITIES</span>
-        <button
-          class:active={activeTool === "light"}
-          onclick={() => selectTool("light")}
-          aria-label="Place Lights"
-        >
-          <span>💡</span> Light
-        </button>
-        <button
-          class:active={activeTool === "audio"}
-          onclick={() => selectTool("audio")}
-          aria-label="Place Audio"
-        >
-          <span>🎵</span> Audio
-        </button>
-        <button
-          class:active={activeTool === "event"}
-          onclick={() => selectTool("event")}
-          aria-label="Place Event"
-        >
-          <span>⚡</span> Event
-        </button>
-        <button
-          class:active={activeTool === "spawn"}
-          onclick={() => selectTool("spawn")}
-          aria-label="Place Spawn"
-        >
-          <span>🚩</span> Spawn
-        </button>
-        <button
-          class:active={activeTool === "emitter"}
-          onclick={() => selectTool("emitter")}
-          aria-label="Place Emitter"
-        >
-          <span>🌧️</span> Emitter
-        </button>
-      </div>
+        <div class="tool-group">
+          <span class="group-label">💡 ENTITIES</span>
+          <button
+            class:active={activeTool === "light"}
+            onclick={() => selectTool("light")}
+            aria-label="Place Lights"
+          >
+            <span>💡</span> Light
+          </button>
+          <button
+            class:active={activeTool === "audio"}
+            onclick={() => selectTool("audio")}
+            aria-label="Place Audio"
+          >
+            <span>🎵</span> Audio
+          </button>
+          <button
+            class:active={activeTool === "event"}
+            onclick={() => selectTool("event")}
+            aria-label="Place Event"
+          >
+            <span>⚡</span> Event
+          </button>
+          <button
+            class:active={activeTool === "spawn"}
+            onclick={() => selectTool("spawn")}
+            aria-label="Place Spawn"
+          >
+            <span>🚩</span> Spawn
+          </button>
+          <button
+            class:active={activeTool === "emitter"}
+            onclick={() => selectTool("emitter")}
+            aria-label="Place Emitter"
+          >
+            <span>🌧️</span> Emitter
+          </button>
+        </div>
 
-      <div class="tool-group">
-        <span class="group-label">📦 ASSETS</span>
-        <button
-          class:active={activeTool === "asset"}
-          onclick={() => selectTool("asset")}
-          aria-label="Global Asset Library"
-        >
-          <span>📂</span> Library
-        </button>
-      </div>
+        <div class="tool-group">
+          <span class="group-label">📦 ASSETS</span>
+          <button
+            class:active={activeTool === "asset"}
+            onclick={() => selectTool("asset")}
+            aria-label="Global Asset Library"
+          >
+            <span>📂</span> Library
+          </button>
+        </div>
+      {/if}
 
       <div class="tool-group">
         <span class="group-label">🌍 ENVIRONMENT</span>
@@ -323,6 +334,8 @@
           class:active={lightingPreview}
           onclick={() => mapStore.toggleLightingPreview()}
           aria-label="Toggle Lighting Preview"
+          disabled={isSimulationModeActive}
+          style={isSimulationModeActive ? "opacity: 0.3;" : ""}
         >
           <span>🌓</span> Lighting
         </button>
@@ -330,205 +343,227 @@
           class:active-player={visionEnabled}
           onclick={() => mapStore.toggleVision()}
           aria-label="Toggle Player Preview"
+          disabled={isSimulationModeActive}
+          style={isSimulationModeActive ? "opacity: 0.3;" : ""}
         >
           <span>👁️</span> Player View
+        </button>
+        <button
+          class:active-sim={isSimulationModeActive}
+          onclick={() => mapStore.toggleSimulationMode()}
+          aria-label="Toggle VTT Simulation Mode"
+        >
+          <span>🎬</span> VTT Simulation Mode
         </button>
       </div>
     </div>
 
-    <div class="properties-panel">
-      <!-- Universal Clipboard Actions -->
-      {#if mapStore.selectedItemIds.length > 0 || mapStore.clipboard.length > 0}
-        <div
-          class="panel-section"
-          style="border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.02); margin-bottom: 16px;"
-        >
-          <h3 style="color: #38bdf8;">
-            ✂️ CLIPBOARD {#if mapStore.selectedItemIds.length > 0}({mapStore
-                .selectedItemIds.length} Selected){/if}
-          </h3>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
-            <button
-              class="action-btn"
-              style="justify-content: center;"
-              onclick={() => mapStore.copySelected()}
-              disabled={mapStore.selectedItemIds.length === 0}
-              title="Ctrl+C"
-            >
-              📄 Copy
-            </button>
-            <button
-              class="action-btn"
-              style="justify-content: center;"
-              onclick={() => mapStore.pasteClipboard(0, 0)}
-              disabled={mapStore.clipboard.length === 0}
-              title="Ctrl+V"
-            >
-              📋 Paste
-            </button>
-            <button
-              class="action-btn"
-              style="justify-content: center;"
-              onclick={() => mapStore.duplicateSelected()}
-              disabled={mapStore.selectedItemIds.length === 0}
-              title="Ctrl+D"
-            >
-              👯 Duplicate
-            </button>
-            <button
-              class="action-btn"
-              style="justify-content: center; color: #ef4444;"
-              onclick={() => mapStore.deleteSelected()}
-              disabled={mapStore.selectedItemIds.length === 0}
-              title="Delete/Backspace"
-            >
-              🗑️ Delete
-            </button>
-          </div>
-        </div>
-      {/if}
-
-      <!-- Universal Visibility Override Block[cite: 14] -->
-      {#if mapStore.selectedItemIds.length > 0}
-        <div
-          class="panel-section"
-          style="border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.02); margin-bottom: 16px;"
-        >
-          <h3 style="color: #f59e0b;">🎛️ VISIBILITY OVERRIDE</h3>
-          <label
-            style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px;"
+    <!-- HIDE PROPERTIES PANEL DURING SIMULATION -->
+    {#if !isSimulationModeActive}
+      <div class="properties-panel">
+        <!-- Universal Clipboard Actions -->
+        {#if mapStore.selectedItemIds.length > 0 || mapStore.clipboard.length > 0}
+          <div
+            class="panel-section"
+            style="border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.02); margin-bottom: 16px;"
           >
-            Universal Visibility (Player View)
-            <select
-              style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
-              onchange={(e) => {
-                mapStore.selectedItemIds.forEach((id) => {
-                  mapStore.updateItemProperty(
-                    id,
-                    "properties.visibility",
-                    e.target.value,
-                  );
-                });
-              }}
+            <h3 style="color: #38bdf8;">
+              ✂️ CLIPBOARD {#if mapStore.selectedItemIds.length > 0}({mapStore
+                  .selectedItemIds.length} Selected){/if}
+            </h3>
+            <div
+              style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;"
             >
-              <option value="visible">👁️ Visible to Everyone</option>
-              <option value="gm_only">🕵️ GM Only (Hidden from Players)</option>
-              <option value="hidden">🚫 Completely Disabled</option>
-            </select>
-          </label>
-          <p class="helper-text" style="margin-top: 8px; font-size: 10px;">
-            <strong>GM Only:</strong> VTTs will load this object for the GM, but
-            never send it to connected players until triggered.
-          </p>
-        </div>
-      {/if}
+              <button
+                class="action-btn"
+                style="justify-content: center;"
+                onclick={() => mapStore.copySelected()}
+                disabled={mapStore.selectedItemIds.length === 0}
+                title="Ctrl+C"
+              >
+                📄 Copy
+              </button>
+              <button
+                class="action-btn"
+                style="justify-content: center;"
+                onclick={() => mapStore.pasteClipboard(0, 0)}
+                disabled={mapStore.clipboard.length === 0}
+                title="Ctrl+V"
+              >
+                📋 Paste
+              </button>
+              <button
+                class="action-btn"
+                style="justify-content: center;"
+                onclick={() => mapStore.duplicateSelected()}
+                disabled={mapStore.selectedItemIds.length === 0}
+                title="Ctrl+D"
+              >
+                👯 Duplicate
+              </button>
+              <button
+                class="action-btn"
+                style="justify-content: center; color: #ef4444;"
+                onclick={() => mapStore.deleteSelected()}
+                disabled={mapStore.selectedItemIds.length === 0}
+                title="Delete/Backspace"
+              >
+                🗑️ Delete
+              </button>
+            </div>
+          </div>
+        {/if}
 
-      <!-- Dynamic Sub-Panel Injection Router[cite: 14] -->
-      {#if displayCategory === "select"}
-        {#if selectedItems.length === 0}
-          <div class="panel-section">
-            <h3>🖱️ SELECTION TOOL</h3>
-            <p class="helper-text" style="margin-top: 8px;">
-              Click an object on the map to view and edit its properties. Hold
-              Shift to select multiple items.
+        <!-- Universal Visibility Override Block -->
+        {#if mapStore.selectedItemIds.length > 0}
+          <div
+            class="panel-section"
+            style="border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.02); margin-bottom: 16px;"
+          >
+            <h3 style="color: #f59e0b;">🎛️ VISIBILITY OVERRIDE</h3>
+            <label
+              style="font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px;"
+            >
+              Universal Visibility (Player View)
+              <select
+                style="background: #0f172a; border: 1px solid #334155; color: #fff; padding: 4px; border-radius: 4px;"
+                onchange={(e) => {
+                  mapStore.selectedItemIds.forEach((id) => {
+                    mapStore.updateItemProperty(
+                      id,
+                      "properties.visibility",
+                      e.target.value,
+                    );
+                  });
+                }}
+              >
+                <option value="visible">👁️ Visible to Everyone</option>
+                <option value="gm_only">🕵️ GM Only (Hidden from Players)</option
+                >
+                <option value="hidden">🚫 Completely Disabled</option>
+              </select>
+            </label>
+            <p class="helper-text" style="margin-top: 8px; font-size: 10px;">
+              <strong>GM Only:</strong> VTTs will load this object for the GM, but
+              never send it to connected players until triggered.
             </p>
           </div>
         {/if}
-      {:else if displayCategory === "asset"}
-        <AssetLibraryPanel />
-      {:else if displayCategory === "grid_align"}
-        <GridAlignPanel />
-      {:else}
-        <div class="panel-section">
-          <h3>📝 {displayCategory.toUpperCase()} CONFIG</h3>
 
-          <!-- UI State indication: Are we editing an existing item, or updating the brush defaults? -->
-          {#if selectedItems.length === 0 && displayCategory !== "prop"}
-            <div class="status-indicator editing-defaults">
-              <span>✏️ Configuring Defaults for New {displayCategory}s</span>
-            </div>
-          {:else}
-            <div class="status-indicator editing-active">
-              <span
-                >🎯 Editing {selectedItems.length} Selected Item{selectedItems.length >
-                1
-                  ? "s"
-                  : ""}</span
-              >
+        <!-- Dynamic Sub-Panel Injection Router -->
+        {#if displayCategory === "select"}
+          {#if selectedItems.length === 0}
+            <div class="panel-section">
+              <h3>🖱️ SELECTION TOOL</h3>
+              <p class="helper-text" style="margin-top: 8px;">
+                Click an object on the map to view and edit its properties. Hold
+                Shift to select multiple items.
+              </p>
             </div>
           {/if}
+        {:else if displayCategory === "asset"}
+          <AssetLibraryPanel />
+        {:else if displayCategory === "grid_align"}
+          <GridAlignPanel />
+        {:else}
+          <div class="panel-section">
+            <h3>📝 {displayCategory.toUpperCase()} CONFIG</h3>
 
-          <!-- Component Injection -->
-          {#if ["wall", "portal", "roof"].includes(displayCategory)}
-            <GeometryPanel />
-            <div
-              class="panel-section"
-              style="border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.02); margin-top: 12px; padding: 8px; border: 1px solid rgba(168,85,247,0.2); border-radius: 6px;"
-            >
-              <div
-                style="font-size: 10px; font-weight: bold; color: #a855f7; margin-bottom: 4px;"
-              >
-                🛠️ UTILITIES
+            <!-- UI State indication: Are we editing an existing item, or updating the brush defaults? -->
+            {#if selectedItems.length === 0 && displayCategory !== "prop"}
+              <div class="status-indicator editing-defaults">
+                <span>✏️ Configuring Defaults for New {displayCategory}s</span>
               </div>
-              <button
-                class="action-btn"
-                style="background: rgba(168, 85, 247, 0.1); border-color: rgba(168, 85, 247, 0.4); color: #c084fc; justify-content: center;"
-                onclick={() => mapStore.healGeometry()}
-                title="Auto-merge all nearby endpoints to prevent light leaks"
-              >
-                🧲 Snap All Vertices
-              </button>
-            </div>
-          {:else if displayCategory === "event"}
-            <EventPanel />
-          {:else}
-            <EntityPanel />
-          {/if}
+            {:else}
+              <div class="status-indicator editing-active">
+                <span
+                  >🎯 Editing {selectedItems.length} Selected Item{selectedItems.length >
+                  1
+                    ? "s"
+                    : ""}</span
+                >
+              </div>
+            {/if}
 
-          <!-- Quick Actions Footer -->
-          {#if selectedItems.length > 0}
-            <div style="display: flex; gap: 8px; margin-top: 10px;">
-              {#if ["wall", "portal"].includes(displayCategory)}
+            <!-- Component Injection -->
+            {#if ["wall", "portal", "roof"].includes(displayCategory)}
+              <GeometryPanel />
+              <div
+                class="panel-section"
+                style="border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.02); margin-top: 12px; padding: 8px; border: 1px solid rgba(168,85,247,0.2); border-radius: 6px;"
+              >
+                <div
+                  style="font-size: 10px; font-weight: bold; color: #a855f7; margin-bottom: 4px;"
+                >
+                  🛠️ UTILITIES
+                </div>
                 <button
                   class="action-btn"
-                  onclick={() =>
-                    mapStore.convertCategory(
-                      selectedItems[0].id,
-                      displayCategory === "wall" ? "portals" : "walls",
-                    )}
+                  style="background: rgba(168, 85, 247, 0.1); border-color: rgba(168, 85, 247, 0.4); color: #c084fc; justify-content: center;"
+                  onclick={() => mapStore.healGeometry()}
+                  title="Auto-merge all nearby endpoints to prevent light leaks"
                 >
-                  🔄 Convert
+                  🧲 Snap All Vertices
                 </button>
-              {/if}
-              <button
-                class="action-btn wave"
-                onclick={() => mapStore.duplicateSelected()}>📋 Clone</button
-              >
-              <button
-                class="action-btn positive"
-                onclick={() => mapStore.deleteSelected()}>🗑️ Delete</button
-              >
-            </div>
-          {/if}
-        </div>
-      {/if}
-    </div>
+              </div>
+            {:else if displayCategory === "event"}
+              <EventPanel />
+            {:else}
+              <EntityPanel />
+            {/if}
+
+            <!-- Quick Actions Footer -->
+            {#if selectedItems.length > 0}
+              <div style="display: flex; gap: 8px; margin-top: 10px;">
+                {#if ["wall", "portal"].includes(displayCategory)}
+                  <button
+                    class="action-btn"
+                    onclick={() =>
+                      mapStore.convertCategory(
+                        selectedItems[0].id,
+                        displayCategory === "wall" ? "portals" : "walls",
+                      )}
+                  >
+                    🔄 Convert
+                  </button>
+                {/if}
+                <button
+                  class="action-btn wave"
+                  onclick={() => mapStore.duplicateSelected()}>📋 Clone</button
+                >
+                <button
+                  class="action-btn positive"
+                  onclick={() => mapStore.deleteSelected()}>🗑️ Delete</button
+                >
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
   </div>
 
   <!-- ========================================== -->
   <!-- RIGHT GLOBAL SETTINGS PANEL -->
   <!-- ========================================== -->
+  <!-- NEW: The right panel wrapper is now ALWAYS visible -->
   <div class="global-panel-right">
     <FileExportPanel />
-    <HistoryPanel />
-    <MapSettingsPanel />
+
+    <!-- Hide the non-essential settings during simulation -->
+    {#if !isSimulationModeActive}
+      <HistoryPanel />
+      <MapSettingsPanel />
+    {/if}
   </div>
 
   <!-- ========================================== -->
   <!-- BOTTOM CAD STATUS BAR -->
   <!-- ========================================== -->
   <div class="status-bar">
-    <div class="status-segment coord-readout">X: {mouseX} | Y: {mouseY}</div>
+    {#if !isSimulationModeActive}
+      <div class="status-segment coord-readout">X: {mouseX} | Y: {mouseY}</div>
+    {/if}
     <div class="status-segment zoom-readout">Zoom: {zoomScale}%</div>
     <div class="status-segment hint">{@html hotkeyHint}</div>
     <div class="status-segment right">UVTT v2 Compiler</div>
@@ -656,7 +691,7 @@
   }
 
   .tool-selector {
-    width: 160px; /* Increased from 140px to fit 'Player View' */
+    width: 200px;
     display: flex;
     flex-direction: column;
     gap: 15px;
@@ -803,6 +838,14 @@
     background: #22c55e22;
     border-color: #22c55e;
     color: #4ade80;
+  }
+
+  /* VTT Simulation Active State */
+  button.active-sim {
+    background: #0ea5e922;
+    border-color: #38bdf8;
+    color: #bae6fd;
+    box-shadow: 0 0 10px rgba(14, 165, 233, 0.4);
   }
 
   .action-btn {
