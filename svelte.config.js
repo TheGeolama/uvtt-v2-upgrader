@@ -21,9 +21,6 @@ const config = {
       // Setting a fallback converts SvelteKit from a traditional SSR/SSG framework 
       // into a pure SPA. This ensures all routing is handled entirely in the browser, 
       // which is mandatory for WebGPU canvas rendering and desktop environments.
-<<<<<<< HEAD
-      fallback: 'index.html' 
-=======
       fallback: 'index.html',
       
       // Explicitly direct output to the 'build' folder so the Wails Go compiler 
@@ -32,7 +29,6 @@ const config = {
       assets: 'build',
       precompress: false,
       strict: true
->>>>>>> f25e47d41c2e717e93e8ab7945bc4347a7af40f4
     }),
 
     // ----------------------------------------------------------------------
@@ -52,19 +48,12 @@ const config = {
     // DEPLOYMENT PATHS
     // ----------------------------------------------------------------------
     paths: {
-<<<<<<< HEAD
-      // Explicitly define the base path for GitHub Pages production deployments.
-      // In production builds, assets will correctly load from '/uvtt-v2-upgrader/...'. 
-      // In local dev ('npm run dev'), it remains at the standard root '/'.
-      base: process.argv.includes('dev') ? '' : '/uvtt-v2-upgrader'
-=======
-      // CRITICAL FOR WAILS DESKTOP:
-      // Wails serves files directly from the root of the embedded 'build' folder.
-      // If you previously used a base path for GitHub Pages (e.g., '/uvtt-v2-upgrader'), 
-      // you MUST leave this empty ('') for the desktop build, otherwise Wails will 404
-      // and result in a blank white screen on startup.
-      base: ''
->>>>>>> f25e47d41c2e717e93e8ab7945bc4347a7af40f4
+      // CRITICAL DUAL-BUILD LOGIC:
+      // GitHub Pages requires the '/uvtt-v2-upgrader' base path.
+      // Wails Desktop requires an empty string '' base path.
+      // By checking for 'GITHUB_ACTIONS', we dynamically set the correct path 
+      // depending on where the compiler is running!
+      base: process.env.GITHUB_ACTIONS ? '/uvtt-v2-upgrader' : ''
     }
   }
 };
