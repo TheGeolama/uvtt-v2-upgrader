@@ -1,9 +1,3 @@
-<!-- 
-  @component CanvasWorkspace
-  The foundational PixiJS wrapper component. 
-  Orchestrates all interaction between the DOM (mouse/keyboard events), 
-  the Svelte mapStore (Data), and the underlying WebGL Canvas (PixiJS layers).
--->
 <script>
   import { onMount, onDestroy } from "svelte";
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
@@ -15,6 +9,7 @@
   import EntitiesLayer from "./canvas/EntitiesLayer.svelte";
   import ShadowLayer from "./canvas/ShadowLayer.svelte";
   import OverlayLayer from "./canvas/OverlayLayer.svelte";
+  import SimulationLayer from "./canvas/SimulationLayer.svelte";
   import { VisionEngine } from "./canvas/VisionEngine.js";
 
   let canvasContainer;
@@ -24,32 +19,22 @@
   let mapSprite;
   let visionEngine = $state.raw(null);
 
-  // --- REACTIVE VIEWPORT STATE ---
   let scale = $state(1);
   let panX = $state(0);
   let panY = $state(0);
   let currentMapId = null;
-  let currentMapUrl = ""; // Tracks the loaded texture URL for safe unloading
+  let currentMapUrl = "";
   let isPanning = $state(false);
 
   let dragStart = { x: 0, y: 0 };
   let originalPan = { x: 0, y: 0 };
 
-  // --- CULLING STATE CACHE ---
-  // Tracks exactly when the camera has moved or map updated to prevent unnecessary math
-  let lastCullPanX = null;
-  let lastCullPanY = null;
-  let lastCullScale = null;
-  let lastCullTrigger = null;
-
-  // DRAG STATE
   let draggedItemId = null;
   let draggedNodeIndex = null;
   let lastDragGrid = null;
   let currentGridX = 0;
   let currentGridY = 0;
 
-  // --- REACTIVE OVERLAY STATE (Passed to OverlayLayer) ---
   let isBoxSelecting = $state(false);
   let boxSelectStart = $state(null);
   let boxSelectEnd = $state(null);
@@ -62,15 +47,13 @@
   let isSpacePressed = $state(false);
   let isPixiReady = $state(false);
   let isDraggingVisionToken = $state(false);
-
-  // Coordinate HUD is now hidden by default to keep the UI clean
   let showGridHUD = $state(false);
 
   let activeMap = $derived(mapStore.activeMap);
   let activeTool = $derived(mapStore.activeTool);
   let vision = $derived(mapStore.vision);
+  let isSimulationModeActive = $derived(mapStore.isSimulationModeActive);
 
-  // --- WINDOW RESIZE TRACKING ---
   let lastWindowWidth = 0;
   let lastWindowHeight = 0;
 
@@ -89,6 +72,8 @@
       antialias: true,
     });
 
+    mapStore.pixiApp = pixiApp;
+
     pixiApp.canvas.style.position = "absolute";
     pixiApp.canvas.style.top = "0";
     pixiApp.canvas.style.left = "0";
@@ -101,92 +86,52 @@
     mapSprite = new PIXI.Sprite();
     viewportContainer.addChild(mapSprite);
 
-    // Overlay is appended last so it sits on top of all injected Svelte Layers
     overlayContainer = new PIXI.Container();
     viewportContainer.addChild(overlayContainer);
 
     // =========================================================================
-    // GPU OPTIMIZATION: VIEWPORT CULLING TICKER
-    // Taps directly into WebGL render loop. Prevents draw-calls for offscreen
-    // geometries, drastically improving framerates on massive multi-megabyte maps.
+    // BLAZING FAST HARDWARE CULLING LOOP
+    // Replaces the CPU-heavy recursive `getLocalBounds()` with a raw float comparison
     // =========================================================================
     pixiApp.ticker.add(() => {
       if (!activeMap || !viewportContainer) return;
 
-      const currentTrigger = mapStore.updateTrigger;
-
-      // Escape Hatch: Only perform expensive bounds checks if the camera moved or map updated
-      if (
-        panX === lastCullPanX &&
-        panY === lastCullPanY &&
-        scale === lastCullScale &&
-        currentTrigger === lastCullTrigger
-      ) {
-        return;
-      }
-
-      lastCullPanX = panX;
-      lastCullPanY = panY;
-      lastCullScale = scale;
-      lastCullTrigger = currentTrigger;
-
       const cw = window.innerWidth;
       const ch = window.innerHeight;
+      const buffer = 500 / scale; // Safety buffer to prevent pop-in
 
-      // Calculate active viewing frustum with a generous 500px offscreen safety buffer
-      // This buffer prevents assets from "popping in" visibly at the edges of the screen
-      const buffer = 500 / scale;
       const cameraLeft = -panX / scale - buffer;
       const cameraRight = (cw - panX) / scale + buffer;
       const cameraTop = -panY / scale - buffer;
       const cameraBottom = (ch - panY) / scale + buffer;
 
-      const applyCulling = (node) => {
-        if (!node || !node.children) return;
+      const entitiesLayer = viewportContainer.children.find(
+        (c) => c.label === "EntitiesLayer",
+      );
+      if (entitiesLayer) {
+        // Iterate only the top-level entity containers (O(N) performance)
+        for (let i = 0; i < entitiesLayer.children.length; i++) {
+          const child = entitiesLayer.children[i];
 
-        for (const child of node.children) {
-          // Skip the Svelte drawing UI and the background map texture entirely
-          if (child === mapSprite || child === overlayContainer) continue;
+          // Never cull full-screen shaders or abstract linking lines
+          if (child.isGlobalGeometry) {
+            child.renderable = true;
+            continue;
+          }
 
-          if (child.children && child.children.length > 0) {
-            // It is a structural container (like EntitiesLayer), recurse deeper
-            applyCulling(child);
+          const r = child.cullingRadius || 200;
+          // Mathematical collision check against camera boundaries
+          if (
+            child.x + r < cameraLeft ||
+            child.x - r > cameraRight ||
+            child.y + r < cameraTop ||
+            child.y - r > cameraBottom
+          ) {
+            child.renderable = false;
           } else {
-            // Found a Leaf Display Object (Sprite, Graphic, Particle)
-            const bounds = child.getLocalBounds();
-
-            // Bypass culling entirely for massive global-level objects
-            // (e.g. Map-wide Grids, Global Weather Emitters, Fog of War masks)
-            if (bounds.width > 4000 || bounds.height > 4000) {
-              child.renderable = true;
-              continue;
-            }
-
-            // Map local geometric bounds to global world coordinates
-            const globalLeft = child.x + bounds.x;
-            const globalRight = child.x + bounds.x + bounds.width;
-            const globalTop = child.y + bounds.y;
-            const globalBottom = child.y + bounds.y + bounds.height;
-
-            // If the bounding box is entirely outside the camera frustum, sever rendering
-            if (
-              globalRight < cameraLeft ||
-              globalLeft > cameraRight ||
-              globalBottom < cameraTop ||
-              globalTop > cameraBottom
-            ) {
-              child.renderable = false;
-            } else {
-              child.renderable = true;
-            }
+            child.renderable = true;
           }
         }
-      };
-
-      // Traverse all injected layer containers mapped by Svelte
-      for (const layer of viewportContainer.children) {
-        if (layer === mapSprite || layer === overlayContainer) continue;
-        applyCulling(layer);
       }
     });
 
@@ -203,11 +148,9 @@
     if (pixiApp) {
       pixiApp.destroy(true);
     }
-    // Shut down active nodes to prevent memory/audio leaks when switching apps
     audioEngine.stopAll();
   });
 
-  // --- MAP LOADING & RENDERING EFFECT ---
   $effect(() => {
     const tick = mapStore.redrawTick;
     if (!isPixiReady || !activeMap) return;
@@ -223,9 +166,7 @@
     applyOffsetsAndScale(safeManifest);
   });
 
-  // --- REAL-TIME SPATIAL AUDIO & DYNAMIC LIGHTING EFFECT ---
   $effect(() => {
-    // We bind explicitly to these runes. If any of them change, this effect instantly re-fires.
     const tick = mapStore.updateTrigger;
     const px = panX;
     const py = panY;
@@ -236,7 +177,6 @@
     const manifest = activeMap.manifest;
     const audioZones = manifest.entities?.audio?.zones || [];
 
-    // Grab the FULL geometry object (Walls, Portals, Roofs)
     const geometry = manifest.geometry || {
       walls: [],
       portals: [],
@@ -248,11 +188,9 @@
     let listenerY = 0;
 
     if (vision?.enabled && vision.token) {
-      // PLAYER PREVIEW MODE: Listen from the selected token's exact coordinates
       listenerX = vision.token.x;
       listenerY = vision.token.y;
     } else {
-      // GM MODE: Calculate the exact center of the current camera viewport
       const gridX = Number(manifest.resolution?.pixels_per_grid) || 70;
       const gridY = Number(manifest.resolution?.pixels_per_grid_y) || gridX;
       const originX = Number(manifest.resolution?.map_origin?.[0]) || 0;
@@ -264,7 +202,9 @@
       listenerY = (ch / 2 - py) / s / gridY + originY;
     }
 
-    // Pass the full geometry to the audio engine so it can calculate doors/windows
+    mapStore.cameraX = listenerX;
+    mapStore.cameraY = listenerY;
+
     audioEngine.syncZones(
       audioZones,
       audioBlobs,
@@ -272,12 +212,10 @@
       listenerY,
       geometry,
       () => {
-        // This callback fires the millisecond a new track finishes decoding
         mapStore.updateTrigger++;
       },
     );
 
-    // ---- VISION ENGINE SYNC ----
     if (visionEngine) {
       const gridX = Number(manifest.resolution?.pixels_per_grid) || 70;
       const gridY = Number(manifest.resolution?.pixels_per_grid_y) || gridX;
@@ -291,14 +229,12 @@
 
       const addGeom = (items) => {
         items.forEach((item) => {
-          // 1. Deep scan the entire object for any property indicating it should pass light
           const propsStr = JSON.stringify(item.properties || {}).toLowerCase();
           const typeStr = String(item.type || "").toLowerCase();
           const statusStr = String(item.status || "").toLowerCase();
           const isExplicitlyOpen =
             item.closed === false || item.properties?.closed === false;
 
-          // Exclude windows, transparent walls, and broken/open doors from light blocking
           if (
             typeStr.includes("window") ||
             statusStr.includes("window") ||
@@ -334,41 +270,37 @@
         });
       };
 
-      // 2. Scan BOTH walls and portals, just in case the parser sorted windows into walls
       addGeom(geometry.walls || []);
       addGeom(geometry.portals || []);
 
       visionEngine.updateGeometry(pixelWalls);
 
       if (vision?.enabled && vision.token) {
-        visionEngine.fowSprite.alpha = 0.95; // Player view mask opacity
+        visionEngine.fowSprite.alpha = 0.95;
 
-        // --- ADD ALL LIGHT SOURCES ---
         let allLightSources = [
           {
             x: toPixelX(vision.token.x),
             y: toPixelY(vision.token.y),
-            radius: 3000, // Large radius to simulate full sightline for the player token
+            radius: 3000,
           },
         ];
 
-        // Gather placed map lights to punch ambient holes in the Fog of War
         const mapLights = manifest.entities?.lights || [];
         mapLights.forEach((light) => {
           const bRad = Number(light.properties?.radius?.bright) || 0;
           const dRad = Number(light.properties?.radius?.dim) || 0;
-          const maxRad = Math.max(bRad, dRad) || 5; // Default to 5 squares if undefined
+          const maxRad = Math.max(bRad, dRad) || 5;
 
           allLightSources.push({
             x: toPixelX(light.position.x),
             y: toPixelY(light.position.y),
-            radius: maxRad * gridX, // Convert grid units to pixels
+            radius: maxRad * gridX,
           });
         });
 
         visionEngine.renderVision(allLightSources);
       } else {
-        // GM View - clear fog of war
         visionEngine.fowSprite.alpha = 0.0;
         visionEngine.renderVision([]);
       }
@@ -390,12 +322,10 @@
   }
 
   async function loadMapImage(url, manifest) {
-    // 1. Immediately clear the sprite so the render loop doesn't crash on a dead texture
     if (mapSprite) {
       mapSprite.texture = PIXI.Texture.EMPTY;
     }
 
-    // 2. Safely unload the previous background texture from PIXI memory
     if (currentMapUrl && currentMapUrl !== url) {
       try {
         await PIXI.Assets.unload(currentMapUrl);
@@ -407,12 +337,10 @@
 
     if (!url) return;
 
-    // 3. Load the new texture and apply it
     try {
       mapSprite.texture = await PIXI.Assets.load(url);
       applyOffsetsAndScale(manifest);
 
-      // 4. Initialize Vision Engine to exact map pixel bounds
       if (visionEngine) {
         visionEngine.destroy();
         visionEngine = null;
@@ -425,7 +353,6 @@
 
       visionEngine = new VisionEngine(pixiApp, mapW, mapH, viewportContainer);
 
-      // Ensure overlay stays on top of the newly appended Fog of War
       if (viewportContainer && overlayContainer) {
         viewportContainer.setChildIndex(
           overlayContainer,
@@ -574,15 +501,9 @@
     return { exactX, exactY, snapX, snapY, gridX, gridY };
   }
 
-  /**
-   * HTML5 FILE DROP LISTENER
-   * Acts as the primary ingestion router.
-   * Recognizes standard images (maps), legacy .dd2vtt, and native .uvtt2a Compound Assets.
-   */
   function handleDrop(e) {
     e.preventDefault();
 
-    // 1. Asset Library Memory Bus Bypass (for Wails Desktop builds)
     if (
       window.__uvttDraggedAsset &&
       window.__uvttDraggedAsset.type === "asset_prop"
@@ -592,13 +513,11 @@
 
       mapStore.addProp(coords.exactX, coords.exactY, data.image, data.name);
 
-      // --- SMART TOKEN SCALING ---
       const propsArray = activeMap?.manifest?.entities?.props || [];
       if (propsArray.length > 0 && data.naturalWidth && data.naturalHeight) {
         const newProp = propsArray[propsArray.length - 1];
         const maxDim = Math.max(data.naturalWidth, data.naturalHeight);
 
-        // Auto-scales the prop so its longest edge perfectly aligns with the current grid unit size
         const gridFitScale = (coords.gridX / maxDim) * 100;
         newProp.scale = Math.round(gridFitScale);
 
@@ -606,30 +525,10 @@
       }
 
       if (activeTool !== "select") mapStore.setTool("select");
-      window.__uvttDraggedAsset = null; // Clean up memory
+      window.__uvttDraggedAsset = null;
       return;
     }
 
-    // 2. Legacy fallback
-    const dataStr = e.dataTransfer.getData("application/json");
-    if (dataStr) {
-      try {
-        const data = JSON.parse(dataStr);
-        if (data.type === "asset_prop") {
-          const coords = getGridCoordinates(
-            e.clientX,
-            e.clientY,
-            true,
-            "select",
-          );
-          mapStore.addProp(coords.exactX, coords.exactY, data.image, data.name);
-          if (activeTool !== "select") mapStore.setTool("select");
-          return;
-        }
-      } catch (err) {}
-    }
-
-    // 3. External File Drop Ingestion Router
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
       const ext = file.name.split(".").pop().toLowerCase();
@@ -637,9 +536,7 @@
       if (["png", "jpg", "jpeg", "webp"].includes(ext)) {
         mapStore.importImageAsMap(file);
         return;
-      }
-      // NATIVE COMPOUND ASSET SPAWNING (.uvtt2a)
-      else if (ext === "uvtt2a") {
+      } else if (ext === "uvtt2a") {
         const coords = getGridCoordinates(e.clientX, e.clientY, true, "select");
         mapStore.loadCompoundAssetFromFile(file, coords.exactX, coords.exactY);
         return;
@@ -657,10 +554,9 @@
     if (!viewportContainer || !activeMap) return;
 
     if (e.button === 0 || e.button === 1) {
-      mapStore.closeContextMenu(); // Any left/middle click safely dismisses it
+      mapStore.closeContextMenu();
     }
 
-    // AUDIO ENGINE INIT (Browsers require a user interaction gesture to unlock Web Audio API)
     if (!audioEngine.isInitialized) {
       audioEngine.init();
     } else {
@@ -678,7 +574,6 @@
       }
     }
 
-    // --- CONTEXT MENU (RIGHT CLICK) ---
     if (
       e.button === 2 &&
       activeTool === "select" &&
@@ -690,27 +585,38 @@
       const manifest = activeMap.manifest;
       let closestItem = null;
       let minGridDistSq = (15 / scale / coords.gridX) ** 2;
+
       const candidates =
         mapStore.quadtree?.retrieve({
-          x: coords.exactX - 1,
-          y: coords.exactY - 1,
-          w: 2,
-          h: 2,
+          x: coords.exactX - 10,
+          y: coords.exactY - 10,
+          w: 20,
+          h: 20,
         }) || [];
 
-      const checkEntityCollision = (items, getPos) => {
+      const checkEntityCollision = (items, getPos, isProp = false) => {
         items.forEach((item) => {
           if (!candidates.find((c) => c.id === item.id)) return;
           const pos = getPos(item);
           if (!pos || isNaN(pos.x) || isNaN(pos.y)) return;
+
           const distSq =
             (coords.exactX - pos.x) ** 2 + (coords.exactY - pos.y) ** 2;
-          if (distSq < minGridDistSq) {
-            minGridDistSq = distSq;
-            closestItem = item;
+
+          if (isProp) {
+            const propRadius = ((item.scale || 100) / 100) * 0.5;
+            if (distSq < propRadius * propRadius) {
+              closestItem = item;
+            }
+          } else {
+            if (distSq < minGridDistSq) {
+              minGridDistSq = distSq;
+              closestItem = item;
+            }
           }
         });
       };
+
       const checkGeomSegments = (items) => {
         items.forEach((item) => {
           if (!item.path || item.path.length < 2) return;
@@ -741,6 +647,11 @@
         });
       };
 
+      checkEntityCollision(
+        manifest.entities?.props || [],
+        (i) => ({ x: Number(i.position?.x), y: Number(i.position?.y) }),
+        true,
+      );
       checkEntityCollision(manifest.entities?.lights || [], (i) => ({
         x: Number(i.position?.x),
         y: Number(i.position?.y),
@@ -758,10 +669,6 @@
         y: Number(i.coordinates?.[1]),
       }));
       checkEntityCollision(manifest.entities?.emitters || [], (i) => ({
-        x: Number(i.position?.x),
-        y: Number(i.position?.y),
-      }));
-      checkEntityCollision(manifest.entities?.props || [], (i) => ({
         x: Number(i.position?.x),
         y: Number(i.position?.y),
       }));
@@ -834,7 +741,6 @@
     }
 
     if (e.button === 0) {
-      // Hotkey: Hold Ctrl/Cmd while using another tool to instantly swap to Box Select
       const isTempSelect = (e.ctrlKey || e.metaKey) && activeTool !== "select";
       const currentToolAction = isTempSelect ? "select" : activeTool;
 
@@ -880,12 +786,13 @@
         let closestItem = null,
           closestNodeIndex = null;
         let minGridDistSq = (15 / scale / coords.gridX) ** 2;
+
         const candidates =
           mapStore.quadtree?.retrieve({
-            x: coords.exactX - 1,
-            y: coords.exactY - 1,
-            w: 2,
-            h: 2,
+            x: coords.exactX - 10,
+            y: coords.exactY - 10,
+            w: 20,
+            h: 20,
           }) || [];
 
         const checkGeometryNodes = (items) => {
@@ -911,20 +818,28 @@
         draggedNodeIndex = closestNodeIndex;
 
         if (!closestItem) {
-          const checkEntityCollision = (items, getPos) => {
+          const checkEntityCollision = (items, getPos, isProp = false) => {
             items.forEach((item) => {
               if (!candidates.find((c) => c.id === item.id)) return;
               const pos = getPos(item);
               if (!pos || isNaN(pos.x) || isNaN(pos.y)) return;
-
               const distSq =
                 (coords.exactX - pos.x) ** 2 + (coords.exactY - pos.y) ** 2;
-              if (distSq < minGridDistSq) {
-                minGridDistSq = distSq;
-                closestItem = item;
+
+              if (isProp) {
+                const propRadius = ((item.scale || 100) / 100) * 0.5;
+                if (distSq < propRadius * propRadius) {
+                  closestItem = item;
+                }
+              } else {
+                if (distSq < minGridDistSq) {
+                  minGridDistSq = distSq;
+                  closestItem = item;
+                }
               }
             });
           };
+
           const checkGeomSegments = (items) => {
             items.forEach((item) => {
               if (!item.path || item.path.length < 2) return;
@@ -935,7 +850,6 @@
                   y2 = Number(item.path[i + 1].y);
                 const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
                 if (l2 === 0) continue;
-
                 let t = Math.max(
                   0,
                   Math.min(
@@ -956,6 +870,11 @@
             });
           };
 
+          checkEntityCollision(
+            manifest.entities?.props || [],
+            (i) => ({ x: Number(i.position?.x), y: Number(i.position?.y) }),
+            true,
+          );
           checkEntityCollision(manifest.entities?.lights || [], (i) => ({
             x: Number(i.position?.x),
             y: Number(i.position?.y),
@@ -976,18 +895,12 @@
             x: Number(i.position?.x),
             y: Number(i.position?.y),
           }));
-          checkEntityCollision(manifest.entities?.props || [], (i) => ({
-            x: Number(i.position?.x),
-            y: Number(i.position?.y),
-          }));
           checkGeomSegments(manifest.geometry?.walls || []);
           checkGeomSegments(manifest.geometry?.portals || []);
           checkGeomSegments(manifest.geometry?.overhead || []);
         }
 
         if (closestItem) {
-          // Hotkey: Shift-Click triggers multi-selection logic
-          // (N-1 Selection Rule used for binding Triggers to multiple Target Elements)
           const isMulti = isTempSelect
             ? e.shiftKey
             : e.shiftKey || e.ctrlKey || e.metaKey;
@@ -1029,7 +942,6 @@
 
     if (isDraggingVisionToken) {
       mapStore.updateVisionToken(coords.exactX, coords.exactY);
-      // Force audio and vision nodes to update continuously while dragging!
       mapStore.updateTrigger++;
       return;
     }
@@ -1180,21 +1092,15 @@
     updateViewport();
   }
 
-  /**
-   * GLOBAL CANVAS HOTKEY LISTENER
-   */
   function handleKeyDown(e) {
-    // Ignore hotkeys if user is typing inside an input field
     if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
 
-    // HOTKEY: Hold Spacebar to engage viewport panning mode
     if (e.code === "Space") {
       e.preventDefault();
       isSpacePressed = true;
       return;
     }
 
-    // HOTKEY: Arrow Key Nudging for perfect pixel alignment
     if (
       ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key) &&
       mapStore.selectedItemIds.length > 0
@@ -1206,7 +1112,6 @@
       const gridX = Number(manifest.resolution?.pixels_per_grid) || 70;
       const gridY = Number(manifest.resolution?.pixels_per_grid_y) || gridX;
 
-      // Move exactly 1 map pixel (Hold Shift to nudge 10 pixels at a time)
       const multiplier = e.shiftKey ? 10 : 1;
       let dx = 0;
       let dy = 0;
@@ -1220,7 +1125,6 @@
       return;
     }
 
-    // HOTKEY: Standard Map Editing Commands
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
       e.preventDefault();
       e.shiftKey ? mapStore.redo() : mapStore.undo();
@@ -1302,64 +1206,77 @@
 ></div>
 
 {#if activeMap && isPixiReady}
-  <GridLayer parentContainer={viewportContainer} />
-  <GeometryLayer parentContainer={viewportContainer} />
-  <EntitiesLayer parentContainer={viewportContainer} {panX} {panY} {scale} />
-  <ShadowLayer parentContainer={viewportContainer} />
-
-  <OverlayLayer
-    parentContainer={overlayContainer}
-    {isBoxSelecting}
-    {boxSelectStart}
-    {boxSelectEnd}
-    {isGridAligning}
-    {alignBoxStart}
-    {alignBoxEnd}
-    {draftingPath}
-    {draftingPreview}
-  />
-
-  {@const exactX = Number(mapStore.mouseX || 0)}
-  {@const exactY = Number(mapStore.mouseY || 0)}
-  {@const macroCol = Math.floor(exactX)}
-  {@const macroRow = Math.floor(exactY)}
-  {@const manifest = activeMap.manifest}
-  {@const gridX = Number(manifest.resolution?.pixels_per_grid) || 70}
-  {@const gridY = Number(manifest.resolution?.pixels_per_grid_y) || gridX}
-  {@const originX = Number(manifest.resolution?.map_origin?.[0]) || 0}
-  {@const originY = Number(manifest.resolution?.map_origin?.[1]) || 0}
-
-  {#if showGridHUD}
-    <div
-      class="cell-reticle"
-      style="left: {(macroCol - originX) * gridX * scale +
-        panX}px; top: {(macroRow - originY) * gridY * scale +
-        panY}px; width: {gridX * scale}px; height: {gridY * scale}px;"
-    >
-      <span class="reticle-text">{exactX.toFixed(2)}, {exactY.toFixed(2)}</span>
-    </div>
+  {#if !isSimulationModeActive}
+    <GridLayer parentContainer={viewportContainer} />
+    <GeometryLayer parentContainer={viewportContainer} />
   {/if}
 
-  <div class="coordinate-hud">
+  <EntitiesLayer parentContainer={viewportContainer} />
+
+  {#if isSimulationModeActive}
+    <SimulationLayer parentContainer={viewportContainer} />
+  {/if}
+
+  <ShadowLayer parentContainer={viewportContainer} />
+
+  {#if !isSimulationModeActive}
+    <OverlayLayer
+      parentContainer={overlayContainer}
+      {isBoxSelecting}
+      {boxSelectStart}
+      {boxSelectEnd}
+      {isGridAligning}
+      {alignBoxStart}
+      {alignBoxEnd}
+      {draftingPath}
+      {draftingPreview}
+    />
+  {/if}
+
+  {#if !isSimulationModeActive}
+    {@const exactX = Number(mapStore.mouseX || 0)}
+    {@const exactY = Number(mapStore.mouseY || 0)}
+    {@const macroCol = Math.floor(exactX)}
+    {@const macroRow = Math.floor(exactY)}
+    {@const manifest = activeMap.manifest}
+    {@const gridX = Number(manifest.resolution?.pixels_per_grid) || 70}
+    {@const gridY = Number(manifest.resolution?.pixels_per_grid_y) || gridX}
+    {@const originX = Number(manifest.resolution?.map_origin?.[0]) || 0}
+    {@const originY = Number(manifest.resolution?.map_origin?.[1]) || 0}
+
     {#if showGridHUD}
-      <div class="coord-label">
-        X <span class="coord-val">{exactX.toFixed(2)}</span>
+      <div
+        class="cell-reticle"
+        style="left: {(macroCol - originX) * gridX * scale +
+          panX}px; top: {(macroRow - originY) * gridY * scale +
+          panY}px; width: {gridX * scale}px; height: {gridY * scale}px;"
+      >
+        <span class="reticle-text"
+          >{exactX.toFixed(2)}, {exactY.toFixed(2)}</span
+        >
       </div>
-      <div class="coord-label">
-        Y <span class="coord-val">{exactY.toFixed(2)}</span>
-      </div>
-      <div class="hud-divider"></div>
     {/if}
-    <button
-      class="hud-toggle-btn"
-      onclick={() => (showGridHUD = !showGridHUD)}
-      title="Toggle Grid Coordinates">{showGridHUD ? "👁️" : "🎯"}</button
-    >
-  </div>
+
+    <div class="coordinate-hud">
+      {#if showGridHUD}
+        <div class="coord-label">
+          X <span class="coord-val">{exactX.toFixed(2)}</span>
+        </div>
+        <div class="coord-label">
+          Y <span class="coord-val">{exactY.toFixed(2)}</span>
+        </div>
+        <div class="hud-divider"></div>
+      {/if}
+      <button
+        class="hud-toggle-btn"
+        onclick={() => (showGridHUD = !showGridHUD)}
+        title="Toggle Grid Coordinates">{showGridHUD ? "👁️" : "🎯"}</button
+      >
+    </div>
+  {/if}
 {/if}
 
-<!-- CONTEXT MENU OVERLAY -->
-{#if mapStore.contextMenu.show}
+{#if mapStore.contextMenu.show && !isSimulationModeActive}
   <div
     class="context-menu"
     style="left: {mapStore.contextMenu.x}px; top: {mapStore.contextMenu.y}px;"
@@ -1484,7 +1401,6 @@
     color: #fff;
   }
 
-  /* --- CONTEXT MENU OVERLAY --- */
   .context-menu {
     position: absolute;
     background: rgba(15, 23, 42, 0.95);
