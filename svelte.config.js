@@ -53,7 +53,7 @@ const config = {
       // Wails Desktop requires an empty string '' base path.
       // By checking for 'GITHUB_ACTIONS', we dynamically set the correct path 
       // depending on where the compiler is running!
-      base: process.env.GITHUB_ACTIONS ? '/uvtt-v2-upgrader' : ''
+      base: ''
     }
   }
 };
