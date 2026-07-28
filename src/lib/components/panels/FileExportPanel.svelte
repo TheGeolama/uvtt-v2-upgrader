@@ -59,9 +59,32 @@
   function handleExportFoundry() {
     if (!activeMap) return;
     const payload = packageForPlatform(activeMap.manifest, "foundry");
-    // Uses the new projectIO downloadJSON to trigger the native OS dialog!
     mapStore.downloadJSON(
       `${activeMap.filename || "export"}_foundry.json`,
+      payload,
+    );
+  }
+
+  /**
+   * Routes Roll20 API exports.
+   */
+  function handleExportRoll20() {
+    if (!activeMap) return;
+    const payload = packageForPlatform(activeMap.manifest, "roll20");
+    mapStore.downloadJSON(
+      `${activeMap.filename || "export"}_roll20.json`,
+      payload,
+    );
+  }
+
+  /**
+   * Routes Fantasy Grounds exports.
+   */
+  function handleExportFantasyGrounds() {
+    if (!activeMap) return;
+    const payload = packageForPlatform(activeMap.manifest, "fantasygrounds");
+    mapStore.downloadJSON(
+      `${activeMap.filename || "export"}_fantasygrounds.json`,
       payload,
     );
   }
@@ -101,16 +124,18 @@
         {#if isCompiling}
           ⏳ Compiling...
         {:else}
-          🚀 Universal VTT v2 ({packageCompound && catalog.length > 1
+          🌟 Universal VTT v2 ({packageCompound && catalog.length > 1
             ? ".uvtt2z"
             : ".uvtt"})
         {/if}
       </button>
     </div>
 
-    <div class="button-group" style="margin-top: 8px;">
-      <button onclick={handleExportV1}>Legacy V1 (.dd2vtt)</button>
-      <button onclick={handleExportFoundry}>Foundry VTT (.json)</button>
+    <div class="button-grid">
+      <button onclick={handleExportV1}>Legacy V1</button>
+      <button onclick={handleExportFoundry}>Foundry VTT</button>
+      <button onclick={handleExportRoll20}>Roll20 API</button>
+      <button onclick={handleExportFantasyGrounds}>Fantasy Grounds</button>
     </div>
   </div>
 
@@ -133,6 +158,13 @@
     display: flex;
     gap: 8px;
     margin-top: 10px;
+  }
+  /* NEW CLASS: Prevents flexbox squishing by using a strict 2x2 grid */
+  .button-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
   }
   .checkbox-row {
     display: flex;
@@ -167,6 +199,10 @@
     cursor: pointer;
     font-size: 12px;
     transition: all 0.2s;
+    /* THE FIX: Ensure long text scales cleanly */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   button:hover:not(:disabled) {
     background: #334155;
