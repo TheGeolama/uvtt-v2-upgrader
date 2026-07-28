@@ -113,6 +113,7 @@
     const gridY = Number(res.pixels_per_grid_y) || gridX;
     const originX = Number(res.map_origin[0]) || 0;
     const originY = Number(res.map_origin[1]) || 0;
+
     const selectedIds = new Set(mapStore.selectedItemIds);
 
     // 1. BUILD GRAPHIC PROPS
@@ -130,7 +131,6 @@
         const sprite = new PIXI.Sprite(texture);
         sprite.anchor.set(0.5);
         sprite.rotation = (Number(prop.rotation) || 0) * (Math.PI / 180);
-
         const scaleDec = (Number(prop.scale) || 100) / 100;
         sprite.scale.set(scaleDec);
         sprite.alpha = Math.max(0.01, vAlpha);
@@ -138,7 +138,6 @@
         // Hardware Culling Radius: Longest dimension of the scaled image
         propContainer.cullingRadius =
           Math.max(texture.width, texture.height) * scaleDec;
-
         propContainer.addChild(sprite);
 
         if (!isSimulationModeActive && selectedIds.has(prop.id)) {
@@ -161,6 +160,36 @@
       }
     });
 
+    // --- BUILD SIMULATION VISION TOKEN ---
+    if (isSimulationModeActive) {
+      try {
+        const tokenCont = new PIXI.Container();
+        tokenCont.zIndex = 10000; // Float above everything
+
+        const vx = (Number(mapStore.vision.token.x) - originX) * gridX;
+        const vy = (Number(mapStore.vision.token.y) - originY) * gridY;
+        const tokenRadius = gridX / 2; // Standard 1-square token size
+
+        const vGfx = new PIXI.Graphics();
+
+        // Inner solid token
+        vGfx
+          .circle(vx, vy, tokenRadius)
+          .fill({ color: 0x10b981, alpha: 0.9 })
+          .stroke({ width: 3, color: 0xffffff, alpha: 1 });
+
+        // Outer pulsing/dashed aura
+        vGfx
+          .circle(vx, vy, tokenRadius * 1.5)
+          .stroke({ width: 2, color: 0x10b981, alpha: 0.6, dash: [4, 4] });
+
+        tokenCont.addChild(vGfx);
+        entitiesContainer.addChild(tokenCont);
+      } catch (e) {
+        console.warn("Failed to render Vision Token", e);
+      }
+    }
+
     // 2. BUILD ABSTRACT SYSTEM ENTITIES (Lights, Zones, Events)
     if (!isSimulationModeActive) {
       const allAbstractEntities = [
@@ -170,7 +199,6 @@
         ...(manifest.entities?.landing_zones || []),
         ...(manifest.entities?.emitters || []),
       ];
-
       allAbstractEntities.forEach((ent) => {
         const vAlpha = getVisAlpha(ent, isSimulationModeActive);
         if (vAlpha <= 0) return;
@@ -232,7 +260,6 @@
           const rad = (Number(ent.radius) || 5) * gridX;
 
           entCont.cullingRadius = rad;
-
           gfx
             .circle(0, 0, rad)
             .fill({ color: 0x3b82f6, alpha: 0.05 * vAlpha })
@@ -250,7 +277,6 @@
           const h = (Number(ent.trigger_bounds.height) || 1) * gridY;
 
           entCont.cullingRadius = Math.max(w, h);
-
           gfx
             .rect(-w / 2, -h / 2, w, h)
             .fill({ color: 0xa855f7, alpha: 0.1 * vAlpha })
@@ -270,7 +296,6 @@
           entCont.y = (Number(ent.coordinates[1]) - originY) * gridY;
           const halfX = gridX / 2;
           const halfY = gridY / 2;
-
           entCont.cullingRadius = Math.max(gridX, gridY);
 
           const color = ent.is_default ? 0x22c55e : 0xeab308;

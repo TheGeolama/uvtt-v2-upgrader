@@ -25,16 +25,13 @@
   let currentMapId = null;
   let currentMapUrl = "";
   let isPanning = $state(false);
-
   let dragStart = { x: 0, y: 0 };
   let originalPan = { x: 0, y: 0 };
-
   let draggedItemId = null;
   let draggedNodeIndex = null;
   let lastDragGrid = null;
   let currentGridX = 0;
   let currentGridY = 0;
-
   let isBoxSelecting = $state(false);
   let boxSelectStart = $state(null);
   let boxSelectEnd = $state(null);
@@ -108,6 +105,7 @@
       const entitiesLayer = viewportContainer.children.find(
         (c) => c.label === "EntitiesLayer",
       );
+
       if (entitiesLayer) {
         // Iterate only the top-level entity containers (O(N) performance)
         for (let i = 0; i < entitiesLayer.children.length; i++) {
@@ -120,6 +118,7 @@
           }
 
           const r = child.cullingRadius || 200;
+
           // Mathematical collision check against camera boundaries
           if (
             child.x + r < cameraLeft ||
@@ -221,10 +220,8 @@
       const gridY = Number(manifest.resolution?.pixels_per_grid_y) || gridX;
       const originX = Number(manifest.resolution?.map_origin?.[0]) || 0;
       const originY = Number(manifest.resolution?.map_origin?.[1]) || 0;
-
       const toPixelX = (gx) => (gx - originX) * gridX;
       const toPixelY = (gy) => (gy - originY) * gridY;
-
       let pixelWalls = [];
 
       const addGeom = (items) => {
@@ -277,7 +274,6 @@
 
       if (vision?.enabled && vision.token) {
         visionEngine.fowSprite.alpha = 0.95;
-
         let allLightSources = [
           {
             x: toPixelX(vision.token.x),
@@ -345,6 +341,7 @@
         visionEngine.destroy();
         visionEngine = null;
       }
+
       const res = manifest.resolution;
       const gridX = Number(res.pixels_per_grid) || 70;
       const gridY = Number(res.pixels_per_grid_y) || gridX;
@@ -369,8 +366,10 @@
     const res = manifest.resolution;
     const gridX = Number(res.pixels_per_grid) || 70;
     const gridY = Number(res.pixels_per_grid_y) || gridX;
+
     mapSprite.width = res.map_size[0] * gridX;
     mapSprite.height = res.map_size[1] * gridY;
+
     mapSprite.position.set(
       Number(res.map_offset_x) || 0,
       Number(res.map_offset_y) || 0,
@@ -385,11 +384,14 @@
 
     const mapWidth = res.map_size[0] * gridX;
     const mapHeight = res.map_size[1] * gridY;
+
     const cw = window.innerWidth;
     const ch = window.innerHeight;
     scale = Math.min((cw - 100) / mapWidth, (ch - 100) / mapHeight, 1);
+
     panX = (cw - mapWidth * scale) / 2;
     panY = (ch - mapHeight * scale) / 2;
+
     mapStore.zoomScale = Math.round(scale * 100);
     updateViewport();
   }
@@ -412,15 +414,19 @@
         const y1 = Number(wall.path[i].y);
         const x2 = Number(wall.path[i + 1].x);
         const y2 = Number(wall.path[i + 1].y);
+
         const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
         if (l2 === 0) continue;
+
         let t = Math.max(
           0,
           Math.min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2),
         );
+
         const projX = x1 + t * (x2 - x1);
         const projY = y1 + t * (y2 - y1);
         const distSq = (px - projX) ** 2 + (py - projY) ** 2;
+
         if (distSq < closestDist) {
           closestDist = distSq;
           snapPoint = { x: projX, y: projY };
@@ -433,16 +439,20 @@
   function getGridCoordinates(clientX, clientY, e_shiftKey, currentToolAction) {
     if (!activeMap)
       return { exactX: 0, exactY: 0, snapX: 0, snapY: 0, gridX: 70, gridY: 70 };
+
     const rect = canvasContainer.getBoundingClientRect();
     const manifest = activeMap.manifest;
     const gridX = Number(manifest.resolution?.pixels_per_grid) || 70;
     const gridY = Number(manifest.resolution?.pixels_per_grid_y) || gridX;
+
     const unitsPerGrid = Math.max(
       1,
       Number(manifest.resolution?.units_per_grid) || 5,
     );
+
     const originX = Number(manifest.resolution?.map_origin?.[0]) || 0;
     const originY = Number(manifest.resolution?.map_origin?.[1]) || 0;
+
     const exactX = (clientX - rect.left - panX) / scale / gridX + originX;
     const exactY = (clientY - rect.top - panY) / scale / gridY + originY;
 
@@ -450,6 +460,7 @@
     let snapY = exactY;
     let isVectorSnapped = false;
     let draggedCategory = null;
+
     if (currentToolAction === "select" && draggedItemId) {
       if (manifest.entities?.lights?.some((i) => i.id === draggedItemId))
         draggedCategory = "light";
@@ -473,8 +484,10 @@
     const isFreeTool = ["light", "audio", "emitter", "prop"].includes(
       effectiveAction,
     );
+
     const isCenterSnapTool = ["spawn", "event"].includes(effectiveAction);
     const shouldSnap = isFreeTool ? e_shiftKey : !e_shiftKey;
+
     if (isCenterSnapTool && shouldSnap) {
       snapX = Math.floor(exactX) + 0.5;
       snapY = Math.floor(exactY) + 0.5;
@@ -486,6 +499,7 @@
         manifest.geometry?.walls || [],
         0.5 / unitsPerGrid,
       );
+
       if (edgeSnap) {
         snapX = edgeSnap.x;
         snapY = edgeSnap.y;
@@ -568,6 +582,7 @@
       const distSq =
         (coords.exactX - vision.token.x) ** 2 +
         (coords.exactY - vision.token.y) ** 2;
+
       if (distSq < 1.0) {
         isDraggingVisionToken = true;
         return;
@@ -695,6 +710,7 @@
         activeTool,
       );
       const thresholdSq = (15 / scale / coords.gridX) ** 2;
+
       if (e.altKey) {
         if (mapStore.splitVectorNode(coords.exactX, coords.exactY, thresholdSq))
           return;
@@ -762,6 +778,7 @@
         e.shiftKey,
         currentToolAction,
       );
+
       currentGridX = coords.snapX;
       currentGridY = coords.snapY;
 
@@ -823,6 +840,7 @@
               if (!candidates.find((c) => c.id === item.id)) return;
               const pos = getPos(item);
               if (!pos || isNaN(pos.x) || isNaN(pos.y)) return;
+
               const distSq =
                 (coords.exactX - pos.x) ** 2 + (coords.exactY - pos.y) ** 2;
 
@@ -850,6 +868,7 @@
                   y2 = Number(item.path[i + 1].y);
                 const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
                 if (l2 === 0) continue;
+
                 let t = Math.max(
                   0,
                   Math.min(
@@ -924,12 +943,14 @@
     if (!activeMap) return;
     const isTempSelect = (e.ctrlKey || e.metaKey) && activeTool !== "select";
     const currentToolAction = isTempSelect ? "select" : activeTool;
+
     const coords = getGridCoordinates(
       e.clientX,
       e.clientY,
       e.shiftKey,
       currentToolAction,
     );
+
     mapStore.mouseX = coords.exactX.toFixed(2);
     mapStore.mouseY = coords.exactY.toFixed(2);
 
@@ -940,16 +961,23 @@
       return;
     }
 
-    if (isDraggingVisionToken) {
-      mapStore.updateVisionToken(coords.exactX, coords.exactY);
-      mapStore.updateTrigger++;
-      return;
+    // THE FIX: Intercept movement for the Vision Token during Simulation Mode
+    if (mapStore.isSimulationModeActive) {
+      // If the mouse button is held down (dragging)
+      if (e.buttons === 1) {
+        mapStore.updateVisionToken(coords.exactX, coords.exactY);
+        mapStore.updateTrigger++;
+
+        // Phase 3 Backlog: Add your teleport bounding-box collision checks here!
+      }
+      return; // Prevent standard CAD tools from firing
     }
 
     if (isGridAligning) {
       const rect = canvasContainer.getBoundingClientRect();
       const worldX = (e.clientX - rect.left - panX) / scale;
       const worldY = (e.clientY - rect.top - panY) / scale;
+
       alignBoxEnd = {
         x: worldX - (Number(activeMap.manifest.resolution.map_offset_x) || 0),
         y: worldY - (Number(activeMap.manifest.resolution.map_offset_y) || 0),
@@ -959,6 +987,7 @@
 
     currentGridX = coords.snapX;
     currentGridY = coords.snapY;
+
     if (isBoxSelecting) {
       boxSelectEnd = { x: coords.exactX, y: coords.exactY };
       return;
@@ -996,10 +1025,12 @@
       isDraggingVisionToken = false;
       return;
     }
+
     isPanning = false;
     draggedItemId = null;
     draggedNodeIndex = null;
     lastDragGrid = null;
+
     if (isGridAligning && alignBoxStart && alignBoxEnd) {
       if (
         Math.abs(alignBoxEnd.x - alignBoxStart.x) > 5 &&
@@ -1027,14 +1058,17 @@
       const minY = Math.min(boxSelectStart.y, boxSelectEnd.y),
         maxY = Math.max(boxSelectStart.y, boxSelectEnd.y);
       const manifest = activeMap.manifest;
+
       const hits = [];
 
       const inBox = (x, y) => x >= minX && x <= maxX && y >= minY && y <= maxY;
+
       const checkEntities = (items, getPos) =>
         items.forEach((item) => {
           const p = getPos(item);
           if (p && inBox(p.x, p.y)) hits.push(item.id);
         });
+
       const checkGeometries = (items) =>
         items.forEach((item) => {
           if (
@@ -1043,6 +1077,7 @@
           )
             hits.push(item.id);
         });
+
       checkEntities(manifest.entities?.lights || [], (i) => ({
         x: Number(i.position?.x),
         y: Number(i.position?.y),
@@ -1067,6 +1102,7 @@
         x: Number(i.position?.x),
         y: Number(i.position?.y),
       }));
+
       checkGeometries(manifest.geometry?.walls || []);
       checkGeometries(manifest.geometry?.portals || []);
       checkGeometries(manifest.geometry?.overhead || []);
@@ -1083,8 +1119,10 @@
     const rect = canvasContainer.getBoundingClientRect();
     const pointerX = e.clientX - rect.left;
     const pointerY = e.clientY - rect.top;
+
     const zoom = e.deltaY < 0 ? 1.1 : 0.9;
     const newScale = scale * zoom;
+
     panX = pointerX - (pointerX - panX) * (newScale / scale);
     panY = pointerY - (pointerY - panY) * (newScale / scale);
     scale = newScale;
@@ -1164,6 +1202,7 @@
         mapStore.clearSelection();
       }
     }
+
     if (e.key === "Enter" && draftingPath.length > 1) {
       mapStore.addGeometry(activeTool, [...draftingPath]);
       draftingPath = [];
