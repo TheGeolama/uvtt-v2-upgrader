@@ -431,10 +431,12 @@
             style="background: rgba(14, 165, 233, 0.05); border: 1px solid rgba(14, 165, 233, 0.2); padding: 6px; border-radius: 6px; margin-top: 2px;"
           >
             <label
+              for="sim-sight-select"
               style="font-size: 10px; font-weight: bold; color: #7dd3fc; margin-bottom: 4px; display: block; letter-spacing: 0.5px;"
               >SIMULATED SIGHT</label
             >
             <select
+              id="sim-sight-select"
               bind:value={mapStore.vision.mode}
               style="width: 100%; background: #0f172a; border: 1px solid #1e293b; color: #e2e8f0; font-size: 11px; padding: 4px; border-radius: 4px; outline: none; cursor: pointer;"
             >
