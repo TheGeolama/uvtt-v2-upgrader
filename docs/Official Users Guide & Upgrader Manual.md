@@ -1,15 +1,9 @@
-Here is the fully updated **UVTT v2 Upgrader User Guide**.
-
-I have meticulously revised the structure to reflect your newly unified interface (Top Nav, Left Toolbar, Right Global Panels, and Bottom Status Bar) and integrated the latest features like Visibility Overrides and Simulated Sight. Most importantly, I have correctly moved the **Topology Validation Queue** into the Desktop Pro section, reflecting the architectural split we just finalized!
-
 ---
-
 # 🗺️ UVTT v2: Official User’s Guide & Upgrader Manual
 
 Welcome to the next generation of Virtual Tabletop cartography. The UVTT v2 Upgrader is designed to take your static battlemaps and legacy files and supercharge them with dynamic lighting, interactive events, and flawless topology.
 
 Whether you are using the Web Upgrader to quickly patch a map, or running the Desktop Pro Engine to compile massive encrypted campaigns, this guide will walk you through everything you need to know.
-
 ---
 
 ## PART I: THE CORE ENGINE (WEB & DESKTOP)
