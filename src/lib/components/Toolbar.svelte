@@ -7,6 +7,8 @@
 -->
 <script>
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
+  import { uiStore } from "$lib/stores/uiStore.svelte.js";
+  import { validatorStore } from "$lib/stores/validatorStore.svelte.js";
   import { upgradeLegacyMap } from "$lib/utils/legacyParser.js";
   import EventPanel from "$lib/components/panels/EventPanel.svelte";
   import GeometryPanel from "$lib/components/panels/GeometryPanel.svelte";
@@ -16,6 +18,8 @@
   import GridAlignPanel from "$lib/components/panels/GridAlignPanel.svelte";
   import EntityPanel from "$lib/components/panels/EntityPanel.svelte";
   import HistoryPanel from "$lib/components/panels/HistoryPanel.svelte";
+  import ValidatorPanel from "$lib/components/panels/ValidatorPanel.svelte";
+  import LevelManagerPanel from "$lib/components/panels/LevelManagerPanel.svelte";
 
   // --- SVELTE 5 REACTIVE DERIVATIONS ---
   // Subscribes to the mapStore to keep the UI perfectly synced with the engine state
@@ -24,7 +28,7 @@
   let activeTool = $derived(mapStore.activeTool);
   let lightingPreview = $derived(mapStore.lightingPreview);
   let visionEnabled = $derived(mapStore.vision?.enabled);
-  let isSimulationModeActive = $derived(mapStore.isSimulationModeActive); // NEW: Bind to the Simulation State
+  let isSimulationModeActive = $derived(mapStore.isSimulationModeActive);
   let manifest = $derived(activeMap?.manifest);
 
   let mouseX = $derived(mapStore.mouseX);
@@ -145,7 +149,6 @@
         alert("Failed to import level");
       }
     }
-    // Reset the input so the same file can be imported again if needed
     e.target.value = null;
   }
 </script>
@@ -229,6 +232,70 @@
           🗑️
         </button>
       {/if}
+
+      <!-- ========================================== -->
+      <!-- DYNAMIC RIGHT SIDEBAR TOGGLES              -->
+      <!-- ========================================== -->
+      <div class="divider"></div>
+
+      <button
+        class="icon-btn {uiStore.activeRightPanel === 'levels'
+          ? 'active-sim'
+          : ''}"
+        onclick={() =>
+          (uiStore.activeRightPanel =
+            uiStore.activeRightPanel === "levels" ? "none" : "levels")}
+        title="Level Manager"
+      >
+        📑
+      </button>
+
+      <!-- Validator / Work-Off Queue Toggle -->
+      <button
+        class="icon-btn {uiStore.activeRightPanel === 'validator'
+          ? 'active-sim'
+          : ''}"
+        onclick={() => {
+          validatorStore.validateMap(mapStore.activeMap);
+          uiStore.activeRightPanel =
+            uiStore.activeRightPanel === "validator" ? "none" : "validator";
+        }}
+        title="Run Validation Sweep & Open Queue"
+      >
+        {#if validatorStore.issues.length > 0}
+          <span
+            style="color: #facc15; font-weight: bold; font-size: 12px; display: flex; align-items: center; gap: 4px;"
+          >
+            ⚠️ {validatorStore.issues.length}
+          </span>
+        {:else}
+          ✅
+        {/if}
+      </button>
+
+      <button
+        class="icon-btn {uiStore.activeRightPanel === 'export'
+          ? 'active-sim'
+          : ''}"
+        onclick={() =>
+          (uiStore.activeRightPanel =
+            uiStore.activeRightPanel === "export" ? "none" : "export")}
+        title="Export Map"
+      >
+        💾
+      </button>
+
+      <button
+        class="icon-btn {uiStore.activeRightPanel === 'settings'
+          ? 'active-sim'
+          : ''}"
+        onclick={() =>
+          (uiStore.activeRightPanel =
+            uiStore.activeRightPanel === "settings" ? "none" : "settings")}
+        title="Map Settings"
+      >
+        ⚙️
+      </button>
     </div>
   </div>
 
@@ -339,6 +406,7 @@
         >
           <span>🌓</span> Lighting
         </button>
+
         <button
           class:active-player={visionEnabled}
           onclick={() => mapStore.toggleVision()}
@@ -348,6 +416,7 @@
         >
           <span>👁️</span> Player View
         </button>
+
         <button
           class:active-sim={isSimulationModeActive}
           onclick={() => mapStore.toggleSimulationMode()}
@@ -355,6 +424,27 @@
         >
           <span>🎬</span> VTT Simulation Mode
         </button>
+
+        <!-- THE FIX: Dynamic Simulated Sight Drodown -->
+        {#if visionEnabled || isSimulationModeActive}
+          <div
+            style="background: rgba(14, 165, 233, 0.05); border: 1px solid rgba(14, 165, 233, 0.2); padding: 6px; border-radius: 6px; margin-top: 2px;"
+          >
+            <label
+              style="font-size: 10px; font-weight: bold; color: #7dd3fc; margin-bottom: 4px; display: block; letter-spacing: 0.5px;"
+              >SIMULATED SIGHT</label
+            >
+            <select
+              bind:value={mapStore.vision.mode}
+              style="width: 100%; background: #0f172a; border: 1px solid #1e293b; color: #e2e8f0; font-size: 11px; padding: 4px; border-radius: 4px; outline: none; cursor: pointer;"
+            >
+              <option value="infinite">Infinite (GM/Day)</option>
+              <option value="darkvision">Darkvision (60ft)</option>
+              <option value="torch">Torch (40ft)</option>
+              <option value="lantern">Lantern (60ft)</option>
+            </select>
+          </div>
+        {/if}
       </div>
     </div>
 
@@ -544,18 +634,26 @@
   </div>
 
   <!-- ========================================== -->
-  <!-- RIGHT GLOBAL SETTINGS PANEL -->
+  <!-- RIGHT GLOBAL SETTINGS PANEL                -->
   <!-- ========================================== -->
-  <!-- NEW: The right panel wrapper is now ALWAYS visible -->
-  <div class="global-panel-right">
-    <FileExportPanel />
+  <!-- Conditionally renders whichever panel is active in the uiStore router -->
+  {#if uiStore.activeRightPanel !== "none"}
+    <div class="global-panel-right">
+      {#if uiStore.activeRightPanel === "levels"}
+        <LevelManagerPanel />
+      {:else if uiStore.activeRightPanel === "validator"}
+        <ValidatorPanel />
+      {:else if uiStore.activeRightPanel === "settings" || uiStore.activeRightPanel === "export"}
+        <!-- RESTORED: Project & Export controls are glued back to the Map Settings! -->
+        <FileExportPanel />
 
-    <!-- Hide the non-essential settings during simulation -->
-    {#if !isSimulationModeActive}
-      <HistoryPanel />
-      <MapSettingsPanel />
-    {/if}
-  </div>
+        {#if !isSimulationModeActive}
+          <HistoryPanel />
+          <MapSettingsPanel />
+        {/if}
+      {/if}
+    </div>
+  {/if}
 
   <!-- ========================================== -->
   <!-- BOTTOM CAD STATUS BAR -->

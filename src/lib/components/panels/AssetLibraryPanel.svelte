@@ -11,17 +11,9 @@
   import { onMount, onDestroy } from "svelte";
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
 
-  // WAILS BINDINGS - Hooking into the Go backend we just built!
-  // WAILS BINDINGS - Corrected relative paths!
-  import {
-    SelectAssetFolder,
-    GetAssets,
-    GetImageBase64,
-  } from "../../../../wailsjs/go/main/AssetManager.js";
-  import { EventsOn, EventsOff } from "../../../../wailsjs/runtime/runtime.js";
-
   /**
    * Evaluates true if the app is running in the Wails Desktop environment
+   * or if the SPA is running backed by the Go Local Server.
    */
   let isDesktopPro = $derived(
     typeof window !== "undefined" && !!window?.go?.main,
@@ -31,62 +23,35 @@
   let selectedGenre = $state("All");
   let searchQuery = $state("");
 
-  // NEW: State for the background image loader
+  // State for the background image loader
   let isScanning = $state(false);
 
-  // --- WAILS INTEGRATION ---
+  // --- UNIFIED ASSET ROUTING ---
 
-  async function mountLiveFolder() {
+  async function handleMount() {
     isScanning = true;
-    const result = await SelectAssetFolder();
-    if (result) {
-      await processLiveAssets(result);
-    }
+    await mapStore.mountAssetLibrary();
     isScanning = false;
   }
 
-  async function refreshLiveFolder() {
+  async function handleRefresh() {
     isScanning = true;
-    const result = await GetAssets();
-    if (result) {
-      await processLiveAssets(result);
-    }
+    await mapStore.refreshAssetLibrary();
     isScanning = false;
   }
 
-  // Converts the lightweight Go references into the rich objects your UI expects,
-  // while fetching the base64 data to bypass browser CORS/memory limits.
-  async function processLiveAssets(assetList) {
-    let newImages = [];
-
-    // In a production app with 10,000 assets, you'd paginate this.
-    // For now, we batch load them to interface cleanly with your existing UI.
-    for (const asset of assetList) {
-      const base64 = await GetImageBase64(asset.path);
-      newImages.push({
-        name: asset.name,
-        path: asset.path,
-        data: base64,
-      });
-    }
-
-    // Preserve existing audio if any, but overwrite the live-synced images
-    mapStore.globalAssets = {
-      audio: mapStore.globalAssets?.audio || [],
-      images: newImages,
-    };
-  }
-
-  // Hook into the Go fsnotify background thread!
+  // THE FIX: Hook into the Go fsnotify background thread dynamically!
+  // By accessing window.runtime, we prevent the SPA bundler from crashing
+  // looking for missing Wails JS imports.
   onMount(() => {
-    if (isDesktopPro) {
-      EventsOn("assets_changed", refreshLiveFolder);
+    if (isDesktopPro && window.runtime?.EventsOn) {
+      window.runtime.EventsOn("assets_changed", handleRefresh);
     }
   });
 
   onDestroy(() => {
-    if (isDesktopPro) {
-      EventsOff("assets_changed");
+    if (isDesktopPro && window.runtime?.EventsOff) {
+      window.runtime.EventsOff("assets_changed");
     }
   });
 
@@ -177,24 +142,24 @@
 </script>
 
 <div class="panel-section">
-  <h3>📦 LOCAL ASSET LIBRARY</h3>
+  <h3>📁 LOCAL ASSET LIBRARY</h3>
 
   <!-- DESKTOP PRO UI -->
   {#if isDesktopPro}
     <div style="display: flex; gap: 8px;">
       <button
         class="action-btn wave"
-        onclick={mountLiveFolder}
+        onclick={handleMount}
         disabled={isScanning}
       >
-        {isScanning ? "⏳ Scanning..." : "📁 Mount Local Folder"}
+        {isScanning ? "⏳ Scanning..." : "📂 Mount Local Folder"}
       </button>
 
       {#if mapStore.globalAssets?.images?.length > 0 || mapStore.globalAssets?.audio?.length > 0}
         <button
           class="action-btn"
           style="flex: 0.2; justify-content: center;"
-          onclick={refreshLiveFolder}
+          onclick={handleRefresh}
           disabled={isScanning}
           title="Force Refresh Directory"
         >
@@ -309,7 +274,7 @@
       class="action-btn secure"
       style="cursor: not-allowed; opacity: 0.8; font-weight: bold;"
     >
-      🔒 Upgrade to Pro
+      ⭐ Upgrade to Pro
     </button>
     <p class="helper-text" style="margin-top: 12px;">
       The Global Asset Library requires unrestricted local file system access.
@@ -320,7 +285,6 @@
 </div>
 
 <style>
-  /* All of your existing styles are preserved perfectly */
   .panel-section {
     display: flex;
     flex-direction: column;
@@ -383,8 +347,6 @@
     border-color: rgba(245, 158, 11, 0.4);
     color: #fcd34d;
   }
-
-  /* FILTER AND SEARCH STYLES */
   .filters-container {
     display: flex;
     flex-direction: column;

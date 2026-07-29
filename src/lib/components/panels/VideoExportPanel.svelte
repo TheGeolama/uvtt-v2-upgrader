@@ -1,11 +1,4 @@
 <script>
-  import {
-    SelectSaveLocation,
-    StartExport,
-    AddFrame,
-    AddAudio,
-    FinishExport,
-  } from "../../../../wailsjs/go/main/VideoExporter.js";
   import { mapStore } from "$lib/stores/mapStore.svelte.js";
   import { audioEngine } from "$lib/utils/spatialAudio.js";
 
@@ -94,7 +87,6 @@
       return false;
     }
 
-    // THE FIX: Directly grab the native Grid Coordinates we exposed in CanvasWorkspace
     const listenerX = mapStore.cameraX !== undefined ? mapStore.cameraX : 0;
     const listenerY = mapStore.cameraY !== undefined ? mapStore.cameraY : 0;
 
@@ -103,7 +95,6 @@
     );
 
     const geometry = activeMap.manifest.geometry;
-
     const sampleRate = 44100;
     const offlineCtx = new OfflineAudioContext(
       2,
@@ -112,7 +103,6 @@
     );
     let hasRenderedSomething = false;
 
-    // Set to false for mathematically accurate production renders.
     const FORCE_AUDIO_BYPASS = false;
 
     for (const zone of audioZones) {
@@ -132,10 +122,7 @@
       const dx = ex - listenerX;
       const dy = ey - listenerY;
 
-      // Distance is now natively measured in Grid Units
       const distance = Math.sqrt(dx * dx + dy * dy);
-
-      // NO MULTIPLIER: We use native grid units directly
       const innerRadius = Number(zone.inner_radius) || 2.5;
       const fadeRadius = Number(zone.radius) || 5.0;
       const baseVolume = (Number(zone.volume) || 100) / 100;
@@ -149,14 +136,7 @@
         targetVolume = baseVolume * fadeRatio;
       }
 
-      console.log(
-        `[Audio Export] Checking '${zone.track}': Distance is ${distance.toFixed(2)} units / Max Radius is ${fadeRadius.toFixed(2)} units`,
-      );
-
       if (targetVolume < 0.005 && !FORCE_AUDIO_BYPASS) {
-        console.log(
-          `[Audio Export] 🔇 '${zone.track}' is out of range (Volume: ${targetVolume.toFixed(3)}). Skipping.`,
-        );
         continue;
       }
 
@@ -171,9 +151,6 @@
       else if (occlusionCount >= 3) targetVolume *= 0.01;
 
       if (targetVolume < 0.005 && !FORCE_AUDIO_BYPASS) {
-        console.log(
-          `[Audio Export] 🧱 '${zone.track}' was completely muffled by ${occlusionCount} solid walls. Skipping.`,
-        );
         continue;
       }
 
@@ -181,9 +158,6 @@
         targetVolume = baseVolume;
       }
 
-      console.log(
-        `[Audio Export] 🔊 Rendering '${zone.track}' into offline buffer (Vol: ${targetVolume.toFixed(2)}, Occlusion: ${occlusionCount} walls)`,
-      );
       hasRenderedSomething = true;
 
       const source = offlineCtx.createBufferSource();
@@ -217,7 +191,8 @@
     const renderedBuffer = await offlineCtx.startRendering();
     const base64Wav = audioBufferToWavBase64(renderedBuffer);
 
-    await AddAudio(base64Wav);
+    // THE FIX: Dynamic call to Wails backend bypassing static imports
+    await window.go.main.VideoExporter.AddAudio(base64Wav);
     return true;
   }
 
@@ -236,11 +211,12 @@
     let simulatedPerfTime = performance.now();
 
     try {
-      const savePath = await SelectSaveLocation();
+      // THE FIX: Dynamic calls to Wails backend bypassing static imports
+      const savePath = await window.go.main.VideoExporter.SelectSaveLocation();
       if (!savePath) return;
 
       // 1. PRIME VIDEO PIPELINE FIRST
-      await StartExport(savePath, fps);
+      await window.go.main.VideoExporter.StartExport(savePath, fps);
 
       // 2. THE AUDIO PASS
       statusText = "🎧 Rendering spatial audio...";
@@ -261,7 +237,7 @@
         pixiApp.render();
 
         const base64 = await pixiApp.renderer.extract.base64(extractOptions);
-        await AddFrame(base64);
+        await window.go.main.VideoExporter.AddFrame(base64);
 
         progress = Math.round(((i + 1) / totalFrames) * 100);
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -273,7 +249,7 @@
         : "🎬 Finalizing silent MP4...";
       await new Promise((r) => setTimeout(r, 50));
 
-      await FinishExport();
+      await window.go.main.VideoExporter.FinishExport();
     } catch (err) {
       console.error("Video Export Failed:", err);
     } finally {

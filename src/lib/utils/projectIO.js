@@ -9,6 +9,48 @@ import { verifyAndCleanManifest } from './schema.js';
 import { translatePathToSvg } from './svgTranslator.js';
 import { slugify, buildEventDestination } from './uriRouter.js';
 
+// ----------------------------------------------------
+// THE UNIVERSAL TRANSPORT ADAPTER
+// Bridges SPA and Desktop environments to prevent Runtime Leakage.
+// ----------------------------------------------------
+const Transport = {
+    get isWails() { return typeof window !== 'undefined' && window.go?.main?.App; },
+    get isLocalServer() { return typeof window !== 'undefined' && window.__SPA_SERVER_MODE__; },
+
+    /**
+     * Dynamically routes backend commands to either Wails IPC or SPA REST endpoints.
+     */
+    async invoke(methodName, ...args) {
+        // 1. Desktop Pro (Wails Native Bridge)
+        if (this.isWails && window.go.main.App[methodName]) {
+            return await window.go.main.App[methodName](...args);
+        }
+        
+        // 2. SPA Local Server (ARM64 REST Fallback)
+        if (this.isLocalServer) {
+            try {
+                const res = await fetch(`/api/${methodName}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ args })
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return await res.json();
+            } catch (e) {
+                console.warn(`SPA REST Fallback failed for ${methodName}`, e);
+                throw e;
+            }
+        }
+
+        // 3. Pure Browser Sandbox
+        throw new Error("No high-performance backend transport available.");
+    }
+};
+
+// ----------------------------------------------------
+// CORE FILE SYSTEM HANDLERS
+// ----------------------------------------------------
+
 export function downloadBlob(filename, blob) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -22,44 +64,36 @@ export function downloadBlob(filename, blob) {
 
 /**
  * Native OS Save Dialog Handler with Chunked Streaming.
- * Slices large files into 1MB chunks to prevent Wails IPC out-of-memory crashes.
+ * Attempts high-performance backend chunking before degrading to HTML5 browser APIs.
  */
 export async function saveAsNative(blob, defaultFilename, description, extension) {
-    // 1. Wails Native Go Bridge - CHUNKED STREAMING
-    if (typeof window !== 'undefined' && window.go?.main?.App?.StartSaveTransfer) {
-        try {
-            // A. Open Dialog & Get File Handle ID
-            const transferId = await window.go.main.App.StartSaveTransfer(defaultFilename, description, `*${extension}`);
-            if (!transferId) return; // User clicked Cancel
+    try {
+        // 1. Attempt High-Performance Backend Routing
+        const transferId = await Transport.invoke('StartSaveTransfer', defaultFilename, description, `*${extension}`);
+        if (!transferId) return; // User clicked Cancel in Native Dialog
 
-            // B. Stream the file in 1MB chunks
-            const chunkSize = 1024 * 1024; // 1 Megabyte
-            for (let i = 0; i < blob.size; i += chunkSize) {
-                const chunk = blob.slice(i, i + chunkSize);
-                
-                // Convert just the small chunk to Base64
-                const b64 = await new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => resolve(reader.result.split(',')[1]);
-                    reader.onerror = reject;
-                    reader.readAsDataURL(chunk);
-                });
-                
-                // Send chunk to Go Backend
-                await window.go.main.App.AppendSaveTransfer(transferId, b64);
-            }
-
-            // C. Close the file stream
-            await window.go.main.App.FinishSaveTransfer(transferId);
-            console.log(`Successfully saved natively to: ${transferId}`);
-            return;
-
-        } catch (err) {
-            console.error("Native chunked save failed, attempting fallbacks...", err);
+        // Stream the file in 1MB chunks to prevent memory bloat
+        const chunkSize = 1024 * 1024; 
+        for (let i = 0; i < blob.size; i += chunkSize) {
+            const chunk = blob.slice(i, i + chunkSize);
+            const b64 = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(chunk);
+            });
+            await Transport.invoke('AppendSaveTransfer', transferId, b64);
         }
+
+        await Transport.invoke('FinishSaveTransfer', transferId);
+        console.log(`Successfully saved natively to: ${transferId}`);
+        return;
+
+    } catch (err) {
+        console.warn("Backend transport unavailable. Engaging HTML5 sandboxed fallbacks...");
     }
 
-    // 2. Browser File System Access API
+    // 2. HTML5 File System Access API (Chrome/Edge)
     if (window.showSaveFilePicker) {
         try {
             const handle = await window.showSaveFilePicker({
@@ -71,11 +105,12 @@ export async function saveAsNative(blob, defaultFilename, description, extension
             await writable.close();
             return;
         } catch (err) {
-            if (err.name === 'AbortError') return;
+            if (err.name === 'AbortError') return; // User aborted
+            console.warn("showSaveFilePicker failed (likely Firefox/Safari constraint). Falling back to Blob download.", err);
         }
     }
     
-    // 3. Fallback Download
+    // 3. Absolute Fallback Download (Safari/Firefox/Mobile)
     downloadBlob(defaultFilename, blob);
 }
 
@@ -244,15 +279,12 @@ export async function importAssetPackage(file) {
         const payload = JSON.parse(await assetFile.async("string"));
         const extractedAudio = {};
         
-        if (payload.image && !payload.image.startsWith('http') && !payload.image.startsWith('data:image')) {
+        // RAM LEAK FIX: We now generate ObjectURLs instead of converting heavy images to Base64 strings.
+        if (payload.image && !payload.image.startsWith('http') && !payload.image.startsWith('data:image') && !payload.image.startsWith('blob:')) {
             const imgFile = zip.file(payload.image);
             if (imgFile) {
                 const blob = await imgFile.async("blob");
-                payload.image = await new Promise((resolve) => {
-                    const reader = new FileReader();
-                    reader.onload = () => resolve(reader.result);
-                    reader.readAsDataURL(blob);
-                });
+                payload.image = URL.createObjectURL(blob);
             }
         }
 
@@ -287,18 +319,15 @@ export async function saveProject(store) {
     
     const defaultFilename = `${store.activeMap?.filename || 'My_Project'}.uvtt-proj`;
 
-    if (typeof window !== 'undefined' && window.go?.main?.App?.SaveProject) {
-        try {
-            const payloadString = JSON.stringify(projectData);
-            const savedPath = await window.go.main.App.SaveProject(payloadString, defaultFilename);
-            if (savedPath) {
-                console.log(`Successfully saved project natively to: ${savedPath}`);
-                return; 
-            }
-        } catch (err) {
-            console.error("Native OS Save Dialog was canceled or failed:", err);
-            return;
+    try {
+        const payloadString = JSON.stringify(projectData);
+        const savedPath = await Transport.invoke('SaveProject', payloadString, defaultFilename);
+        if (savedPath) {
+            console.log(`Successfully saved project natively to: ${savedPath}`);
+            return; 
         }
+    } catch (err) {
+        // Fallback to HTML5 Blob download via saveAsNative
     }
 
     const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' });
@@ -375,14 +404,10 @@ export async function exportSecureVTT(store, isCompound = false) {
         let transferId = null;
         let useFallback = false;
 
-        if (typeof window !== 'undefined' && window.go?.main?.App?.StartSaveTransfer) {
-            try {
-                transferId = await window.go.main.App.StartSaveTransfer(defaultFilename, "Secure ZIP Archive", "*.zip");
-                if (!transferId) return; // Cancelled
-            } catch(err) {
-                useFallback = true;
-            }
-        } else {
+        try {
+            transferId = await Transport.invoke('StartSaveTransfer', defaultFilename, "Secure ZIP Archive", "*.zip");
+            if (!transferId) return; // Cancelled
+        } catch(err) {
             useFallback = true;
         }
 
@@ -500,9 +525,9 @@ export async function exportSecureVTT(store, isCompound = false) {
                     reader.onerror = reject;
                     reader.readAsDataURL(chunk);
                 });
-                await window.go.main.App.AppendSaveTransfer(transferId, b64);
+                await Transport.invoke('AppendSaveTransfer', transferId, b64);
             }
-            await window.go.main.App.FinishSaveTransfer(transferId);
+            await Transport.invoke('FinishSaveTransfer', transferId);
             console.log(`Successfully saved secure export to: ${transferId}`);
         } else if (useFallback) {
             await saveAsNative(deliveryBlob, defaultFilename, "Secure ZIP Archive", ".zip");

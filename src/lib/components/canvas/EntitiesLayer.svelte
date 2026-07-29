@@ -100,7 +100,10 @@
    */
   $effect(() => {
     let _ = mapStore.updateTrigger;
-    let isSimulationModeActive = mapStore.isSimulationModeActive;
+
+    // UNIFIED FIX: Combine simulation mode and player view into a single render flag
+    let isSimOrPlayerView =
+      mapStore.isSimulationModeActive || mapStore.vision?.enabled;
 
     if (!isReady || !mapStore.activeMap) return;
 
@@ -113,12 +116,11 @@
     const gridY = Number(res.pixels_per_grid_y) || gridX;
     const originX = Number(res.map_origin[0]) || 0;
     const originY = Number(res.map_origin[1]) || 0;
-
     const selectedIds = new Set(mapStore.selectedItemIds);
 
     // 1. BUILD GRAPHIC PROPS
     (manifest.entities?.props || []).forEach((prop) => {
-      const vAlpha = getVisAlpha(prop, isSimulationModeActive);
+      const vAlpha = getVisAlpha(prop, isSimOrPlayerView);
       if (vAlpha <= 0) return; // Completely skip rendering if invisible
 
       try {
@@ -127,10 +129,15 @@
         propContainer.y = (Number(prop.position.y) - originY) * gridY;
         propContainer.zIndex = Number(prop.properties?.z_index) || 0;
 
-        const texture = getTexture(prop.image);
+        // UNIFIED FIX: Use Desktop Pro's Asset Cache optimization for local files
+        const imageSrc = mapStore.assetCache[prop.name] || prop.image;
+        if (!imageSrc) return; // Skip if completely missing
+
+        const texture = getTexture(imageSrc);
         const sprite = new PIXI.Sprite(texture);
         sprite.anchor.set(0.5);
         sprite.rotation = (Number(prop.rotation) || 0) * (Math.PI / 180);
+
         const scaleDec = (Number(prop.scale) || 100) / 100;
         sprite.scale.set(scaleDec);
         sprite.alpha = Math.max(0.01, vAlpha);
@@ -138,9 +145,10 @@
         // Hardware Culling Radius: Longest dimension of the scaled image
         propContainer.cullingRadius =
           Math.max(texture.width, texture.height) * scaleDec;
+
         propContainer.addChild(sprite);
 
-        if (!isSimulationModeActive && selectedIds.has(prop.id)) {
+        if (!isSimOrPlayerView && selectedIds.has(prop.id)) {
           const boundsGfx = new PIXI.Graphics();
           const strokeColor = prop.properties?.locked ? 0xef4444 : 0x00f0ff;
           boundsGfx
@@ -160,28 +168,36 @@
       }
     });
 
-    // --- BUILD SIMULATION VISION TOKEN ---
-    if (isSimulationModeActive) {
+    // --- UNIFIED FIX: RESTORE VISION TOKEN ---
+    if (isSimOrPlayerView && mapStore.vision?.token) {
       try {
         const tokenCont = new PIXI.Container();
-        tokenCont.zIndex = 10000; // Float above everything
+        tokenCont.zIndex = 10000;
 
         const vx = (Number(mapStore.vision.token.x) - originX) * gridX;
         const vy = (Number(mapStore.vision.token.y) - originY) * gridY;
-        const tokenRadius = gridX / 2; // Standard 1-square token size
+        const tokenRadius = gridX / 2;
+
+        let tokenColor = 0x10b981; // Default Green
+        if (
+          mapStore.vision.mode === "torch" ||
+          mapStore.vision.mode === "lantern"
+        ) {
+          tokenColor = 0xf59e0b; // Amber/Orange
+        } else if (mapStore.vision.mode === "darkvision") {
+          tokenColor = 0x64748b; // Cool Slate
+        }
 
         const vGfx = new PIXI.Graphics();
 
-        // Inner solid token
         vGfx
           .circle(vx, vy, tokenRadius)
-          .fill({ color: 0x10b981, alpha: 0.9 })
+          .fill({ color: tokenColor, alpha: 0.9 })
           .stroke({ width: 3, color: 0xffffff, alpha: 1 });
 
-        // Outer pulsing/dashed aura
         vGfx
           .circle(vx, vy, tokenRadius * 1.5)
-          .stroke({ width: 2, color: 0x10b981, alpha: 0.6, dash: [4, 4] });
+          .stroke({ width: 2, color: tokenColor, alpha: 0.6, dash: [4, 4] });
 
         tokenCont.addChild(vGfx);
         entitiesContainer.addChild(tokenCont);
@@ -191,7 +207,7 @@
     }
 
     // 2. BUILD ABSTRACT SYSTEM ENTITIES (Lights, Zones, Events)
-    if (!isSimulationModeActive) {
+    if (!isSimOrPlayerView) {
       const allAbstractEntities = [
         ...(manifest.entities?.lights || []),
         ...(manifest.entities?.audio?.zones || []),
@@ -199,8 +215,9 @@
         ...(manifest.entities?.landing_zones || []),
         ...(manifest.entities?.emitters || []),
       ];
+
       allAbstractEntities.forEach((ent) => {
-        const vAlpha = getVisAlpha(ent, isSimulationModeActive);
+        const vAlpha = getVisAlpha(ent, isSimOrPlayerView);
         if (vAlpha <= 0) return;
 
         const entCont = new PIXI.Container();
@@ -218,7 +235,7 @@
 
           entCont.cullingRadius = dRad; // Hardware culling
 
-          // NEW FIX: Force WebGL Additive Blending so lights glow cinematically!
+          // Desktop Pro FIX: Force WebGL Additive Blending so lights glow cinematically!
           gfx.blendMode = "add";
 
           if (ent.type === "directional") {
@@ -260,6 +277,7 @@
           const rad = (Number(ent.radius) || 5) * gridX;
 
           entCont.cullingRadius = rad;
+
           gfx
             .circle(0, 0, rad)
             .fill({ color: 0x3b82f6, alpha: 0.05 * vAlpha })
@@ -277,6 +295,7 @@
           const h = (Number(ent.trigger_bounds.height) || 1) * gridY;
 
           entCont.cullingRadius = Math.max(w, h);
+
           gfx
             .rect(-w / 2, -h / 2, w, h)
             .fill({ color: 0xa855f7, alpha: 0.1 * vAlpha })
@@ -296,6 +315,7 @@
           entCont.y = (Number(ent.coordinates[1]) - originY) * gridY;
           const halfX = gridX / 2;
           const halfY = gridY / 2;
+
           entCont.cullingRadius = Math.max(gridX, gridY);
 
           const color = ent.is_default ? 0x22c55e : 0xeab308;

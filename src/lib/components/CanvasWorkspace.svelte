@@ -49,10 +49,38 @@
   let activeMap = $derived(mapStore.activeMap);
   let activeTool = $derived(mapStore.activeTool);
   let vision = $derived(mapStore.vision);
-  let isSimulationModeActive = $derived(mapStore.isSimulationModeActive);
 
+  // THE FIX: Unify the flags so the Environment Panel and Simulation Mode behave identically
+  let isSimOrPlayerView = $derived(
+    mapStore.isSimulationModeActive || vision?.enabled,
+  );
   let lastWindowWidth = 0;
   let lastWindowHeight = 0;
+
+  // MERGED FEATURE: Intercepts the custom event from the Validation Queue to instantly pan the camera
+  const handlePan = (e) => {
+    const { x, y } = e.detail;
+    if (!activeMap) return;
+
+    const manifest = activeMap.manifest;
+    const gridX = Number(manifest.resolution?.pixels_per_grid) || 70;
+    const gridY = Number(manifest.resolution?.pixels_per_grid_y) || gridX;
+    const originX = Number(manifest.resolution?.map_origin?.[0]) || 0;
+    const originY = Number(manifest.resolution?.map_origin?.[1]) || 0;
+
+    // Convert exact grid coordinates back to texture pixels
+    const targetPixelX = (x - originX) * gridX;
+    const targetPixelY = (y - originY) * gridY;
+
+    const cw = window.innerWidth;
+    const ch = window.innerHeight;
+
+    // Move the container so the target pixel is perfectly centered on the screen
+    panX = cw / 2 - targetPixelX * scale;
+    panY = ch / 2 - targetPixelY * scale;
+
+    updateViewport();
+  };
 
   onMount(async () => {
     if (!canvasContainer) return;
@@ -86,40 +114,28 @@
     overlayContainer = new PIXI.Container();
     viewportContainer.addChild(overlayContainer);
 
-    // =========================================================================
-    // BLAZING FAST HARDWARE CULLING LOOP
-    // Replaces the CPU-heavy recursive `getLocalBounds()` with a raw float comparison
-    // =========================================================================
     pixiApp.ticker.add(() => {
       if (!activeMap || !viewportContainer) return;
 
       const cw = window.innerWidth;
       const ch = window.innerHeight;
-      const buffer = 500 / scale; // Safety buffer to prevent pop-in
+      const buffer = 500 / scale;
 
       const cameraLeft = -panX / scale - buffer;
       const cameraRight = (cw - panX) / scale + buffer;
       const cameraTop = -panY / scale - buffer;
       const cameraBottom = (ch - panY) / scale + buffer;
-
       const entitiesLayer = viewportContainer.children.find(
         (c) => c.label === "EntitiesLayer",
       );
-
       if (entitiesLayer) {
-        // Iterate only the top-level entity containers (O(N) performance)
         for (let i = 0; i < entitiesLayer.children.length; i++) {
           const child = entitiesLayer.children[i];
-
-          // Never cull full-screen shaders or abstract linking lines
           if (child.isGlobalGeometry) {
             child.renderable = true;
             continue;
           }
-
           const r = child.cullingRadius || 200;
-
-          // Mathematical collision check against camera boundaries
           if (
             child.x + r < cameraLeft ||
             child.x - r > cameraRight ||
@@ -134,19 +150,19 @@
       }
     });
 
+    // MERGED FEATURE: Add custom panning event listener
+    window.addEventListener("vtt-pan-camera", handlePan);
+
     isPixiReady = true;
   });
 
   onDestroy(() => {
-    if (visionEngine) {
-      visionEngine.destroy();
-    }
-    if (mapSprite) {
-      mapSprite.texture = PIXI.Texture.EMPTY;
-    }
-    if (pixiApp) {
-      pixiApp.destroy(true);
-    }
+    // MERGED FEATURE: Remove custom panning event listener
+    window.removeEventListener("vtt-pan-camera", handlePan);
+
+    if (visionEngine) visionEngine.destroy();
+    if (mapSprite) mapSprite.texture = PIXI.Texture.EMPTY;
+    if (pixiApp) pixiApp.destroy(true);
     audioEngine.stopAll();
   });
 
@@ -186,7 +202,8 @@
     let listenerX = 0;
     let listenerY = 0;
 
-    if (vision?.enabled && vision.token) {
+    // THE FIX: Sync Spatial Audio listener accurately to the unified token state
+    if (isSimOrPlayerView && vision?.token) {
       listenerX = vision.token.x;
       listenerY = vision.token.y;
     } else {
@@ -196,7 +213,6 @@
       const originY = Number(manifest.resolution?.map_origin?.[1]) || 0;
       const cw = window.innerWidth;
       const ch = window.innerHeight;
-
       listenerX = (cw / 2 - px) / s / gridX + originX;
       listenerY = (ch / 2 - py) / s / gridY + originY;
     }
@@ -250,9 +266,8 @@
             propsStr.includes('"blockslight":false') ||
             propsStr.includes('"blocks_light":false') ||
             propsStr.includes('"light":"pass"')
-          ) {
+          )
             return;
-          }
 
           if (!item.path || item.path.length < 2) return;
           for (let i = 0; i < item.path.length - 1; i++) {
@@ -269,16 +284,25 @@
 
       addGeom(geometry.walls || []);
       addGeom(geometry.portals || []);
-
       visionEngine.updateGeometry(pixelWalls);
 
-      if (vision?.enabled && vision.token) {
+      // THE FIX: Render dynamic lighting accurately based on the unified state
+      if (isSimOrPlayerView && vision?.token) {
         visionEngine.fowSprite.alpha = 0.95;
+
+        // --- NEW: Calculate Token Radius Based on Mode ---
+        let tokenRadius = 3000; // Default infinite GM sight
+        if (vision.mode === "torch") {
+          tokenRadius = 8 * gridX; // 40ft max dim range
+        } else if (vision.mode === "lantern" || vision.mode === "darkvision") {
+          tokenRadius = 12 * gridX; // 60ft max dim range
+        }
+
         let allLightSources = [
           {
             x: toPixelX(vision.token.x),
             y: toPixelY(vision.token.y),
-            radius: 3000,
+            radius: tokenRadius,
           },
         ];
 
@@ -312,15 +336,12 @@
       panY += (ch - lastWindowHeight) / 2;
       updateViewport();
     }
-
     lastWindowWidth = cw;
     lastWindowHeight = ch;
   }
 
   async function loadMapImage(url, manifest) {
-    if (mapSprite) {
-      mapSprite.texture = PIXI.Texture.EMPTY;
-    }
+    if (mapSprite) mapSprite.texture = PIXI.Texture.EMPTY;
 
     if (currentMapUrl && currentMapUrl !== url) {
       try {
@@ -381,7 +402,6 @@
     const res = manifest.resolution;
     const gridX = Number(res.pixels_per_grid) || 70;
     const gridY = Number(res.pixels_per_grid_y) || gridX;
-
     const mapWidth = res.map_size[0] * gridX;
     const mapHeight = res.map_size[1] * gridY;
 
@@ -409,6 +429,7 @@
 
     for (const wall of walls) {
       if (!wall.path || wall.path.length < 2) continue;
+
       for (let i = 0; i < wall.path.length - 1; i++) {
         const x1 = Number(wall.path[i].x);
         const y1 = Number(wall.path[i].y);
@@ -425,6 +446,7 @@
 
         const projX = x1 + t * (x2 - x1);
         const projY = y1 + t * (y2 - y1);
+
         const distSq = (px - projX) ** 2 + (py - projY) ** 2;
 
         if (distSq < closestDist) {
@@ -481,6 +503,7 @@
     }
 
     const effectiveAction = draggedCategory || currentToolAction;
+
     const isFreeTool = ["light", "audio", "emitter", "prop"].includes(
       effectiveAction,
     );
@@ -523,21 +546,19 @@
       window.__uvttDraggedAsset.type === "asset_prop"
     ) {
       const data = window.__uvttDraggedAsset;
+
       const coords = getGridCoordinates(e.clientX, e.clientY, true, "select");
-
       mapStore.addProp(coords.exactX, coords.exactY, data.image, data.name);
-
       const propsArray = activeMap?.manifest?.entities?.props || [];
+
       if (propsArray.length > 0 && data.naturalWidth && data.naturalHeight) {
         const newProp = propsArray[propsArray.length - 1];
-        const maxDim = Math.max(data.naturalWidth, data.naturalHeight);
 
+        const maxDim = Math.max(data.naturalWidth, data.naturalHeight);
         const gridFitScale = (coords.gridX / maxDim) * 100;
         newProp.scale = Math.round(gridFitScale);
-
         mapStore.updateTrigger++;
       }
-
       if (activeTool !== "select") mapStore.setTool("select");
       window.__uvttDraggedAsset = null;
       return;
@@ -545,21 +566,19 @@
 
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
+
       const ext = file.name.split(".").pop().toLowerCase();
 
       if (["png", "jpg", "jpeg", "webp"].includes(ext)) {
         mapStore.importImageAsMap(file);
-        return;
       } else if (ext === "uvtt2a") {
         const coords = getGridCoordinates(e.clientX, e.clientY, true, "select");
         mapStore.loadCompoundAssetFromFile(file, coords.exactX, coords.exactY);
-        return;
       } else if (["dd2vtt", "uvtt", "json", "txt"].includes(ext)) {
         file.text().then((text) => {
           const parsedMap = upgradeLegacyMap(text, file.name);
           if (parsedMap) mapStore.appendLevel(parsedMap);
         });
-        return;
       }
     }
   }
@@ -577,8 +596,10 @@
       audioEngine.resume();
     }
 
-    if (e.button === 0 && vision?.enabled) {
+    // THE FIX: Unified drag target detection for Player View AND Simulation Mode
+    if (e.button === 0 && isSimOrPlayerView) {
       const coords = getGridCoordinates(e.clientX, e.clientY, false, "select");
+
       const distSq =
         (coords.exactX - vision.token.x) ** 2 +
         (coords.exactY - vision.token.y) ** 2;
@@ -597,6 +618,7 @@
       !e.shiftKey
     ) {
       const coords = getGridCoordinates(e.clientX, e.clientY, false, "select");
+
       const manifest = activeMap.manifest;
       let closestItem = null;
       let minGridDistSq = (15 / scale / coords.gridX) ** 2;
@@ -614,15 +636,12 @@
           if (!candidates.find((c) => c.id === item.id)) return;
           const pos = getPos(item);
           if (!pos || isNaN(pos.x) || isNaN(pos.y)) return;
-
           const distSq =
             (coords.exactX - pos.x) ** 2 + (coords.exactY - pos.y) ** 2;
 
           if (isProp) {
             const propRadius = ((item.scale || 100) / 100) * 0.5;
-            if (distSq < propRadius * propRadius) {
-              closestItem = item;
-            }
+            if (distSq < propRadius * propRadius) closestItem = item;
           } else {
             if (distSq < minGridDistSq) {
               minGridDistSq = distSq;
@@ -667,34 +686,40 @@
         (i) => ({ x: Number(i.position?.x), y: Number(i.position?.y) }),
         true,
       );
+
       checkEntityCollision(manifest.entities?.lights || [], (i) => ({
         x: Number(i.position?.x),
         y: Number(i.position?.y),
       }));
+
       checkEntityCollision(manifest.entities?.audio?.zones || [], (i) => ({
         x: Number(i.center?.x),
         y: Number(i.center?.y),
       }));
+
       checkEntityCollision(manifest.entities?.events || [], (i) => ({
         x: Number(i.trigger_bounds?.center?.x),
         y: Number(i.trigger_bounds?.center?.y),
       }));
+
       checkEntityCollision(manifest.entities?.landing_zones || [], (i) => ({
         x: Number(i.coordinates?.[0]),
         y: Number(i.coordinates?.[1]),
       }));
+
       checkEntityCollision(manifest.entities?.emitters || [], (i) => ({
         x: Number(i.position?.x),
         y: Number(i.position?.y),
       }));
+
       checkGeomSegments(manifest.geometry?.walls || []);
       checkGeomSegments(manifest.geometry?.portals || []);
       checkGeomSegments(manifest.geometry?.overhead || []);
 
       if (closestItem) {
-        if (!mapStore.selectedItemIds.includes(closestItem.id)) {
+        if (!mapStore.selectedItemIds.includes(closestItem.id))
           mapStore.selectItem(closestItem.id, false);
-        }
+
         mapStore.openContextMenu(e.clientX, e.clientY);
       } else {
         mapStore.closeContextMenu();
@@ -709,6 +734,7 @@
         false,
         activeTool,
       );
+
       const thresholdSq = (15 / scale / coords.gridX) ** 2;
 
       if (e.altKey) {
@@ -724,6 +750,7 @@
 
     if (e.button === 0 && e.altKey && activeTool === "select") {
       const coords = getGridCoordinates(e.clientX, e.clientY, false, "select");
+
       if (
         mapStore.deleteVectorNode(
           coords.exactX,
@@ -744,6 +771,7 @@
       (e.button === 0 && isSpacePressed)
     ) {
       isPanning = true;
+
       dragStart = { x: e.clientX, y: e.clientY };
       originalPan = { x: panX, y: panY };
       return;
@@ -751,6 +779,7 @@
 
     if (e.button === 2 && draftingPath.length > 1) {
       mapStore.addGeometry(activeTool, [...draftingPath]);
+
       draftingPath = [];
       draftingPreview = null;
       return;
@@ -758,16 +787,21 @@
 
     if (e.button === 0) {
       const isTempSelect = (e.ctrlKey || e.metaKey) && activeTool !== "select";
+
       const currentToolAction = isTempSelect ? "select" : activeTool;
 
       if (currentToolAction === "grid_align") {
         const rect = canvasContainer.getBoundingClientRect();
+
         const worldX = (e.clientX - rect.left - panX) / scale;
         const worldY = (e.clientY - rect.top - panY) / scale;
+
         const offX = Number(activeMap.manifest.resolution.map_offset_x) || 0;
         const offY = Number(activeMap.manifest.resolution.map_offset_y) || 0;
         isGridAligning = true;
+
         alignBoxStart = { x: worldX - offX, y: worldY - offY };
+
         alignBoxEnd = { x: worldX - offX, y: worldY - offY };
         return;
       }
@@ -784,6 +818,7 @@
 
       if (["wall", "portal", "roof"].includes(currentToolAction)) {
         draftingPath = [...draftingPath, { x: currentGridX, y: currentGridY }];
+
         return;
       }
 
@@ -795,13 +830,16 @@
         mapStore[
           `add${currentToolAction.charAt(0).toUpperCase() + currentToolAction.slice(1)}`
         ](currentGridX, currentGridY);
+
         return;
       }
 
       if (currentToolAction === "select") {
         const manifest = activeMap.manifest;
+
         let closestItem = null,
           closestNodeIndex = null;
+
         let minGridDistSq = (15 / scale / coords.gridX) ** 2;
 
         const candidates =
@@ -830,6 +868,7 @@
 
         checkGeometryNodes(manifest.geometry?.walls || []);
         checkGeometryNodes(manifest.geometry?.portals || []);
+
         checkGeometryNodes(manifest.geometry?.overhead || []);
 
         draggedNodeIndex = closestNodeIndex;
@@ -843,12 +882,9 @@
 
               const distSq =
                 (coords.exactX - pos.x) ** 2 + (coords.exactY - pos.y) ** 2;
-
               if (isProp) {
                 const propRadius = ((item.scale || 100) / 100) * 0.5;
-                if (distSq < propRadius * propRadius) {
-                  closestItem = item;
-                }
+                if (distSq < propRadius * propRadius) closestItem = item;
               } else {
                 if (distSq < minGridDistSq) {
                   minGridDistSq = distSq;
@@ -883,6 +919,7 @@
                   (coords.exactY - (y1 + t * (y2 - y1))) ** 2;
                 if (distSq < minGridDistSq) {
                   minGridDistSq = distSq;
+
                   closestItem = item;
                 }
               }
@@ -894,26 +931,32 @@
             (i) => ({ x: Number(i.position?.x), y: Number(i.position?.y) }),
             true,
           );
+
           checkEntityCollision(manifest.entities?.lights || [], (i) => ({
             x: Number(i.position?.x),
             y: Number(i.position?.y),
           }));
+
           checkEntityCollision(manifest.entities?.audio?.zones || [], (i) => ({
             x: Number(i.center?.x),
             y: Number(i.center?.y),
           }));
+
           checkEntityCollision(manifest.entities?.events || [], (i) => ({
             x: Number(i.trigger_bounds?.center?.x),
             y: Number(i.trigger_bounds?.center?.y),
           }));
+
           checkEntityCollision(manifest.entities?.landing_zones || [], (i) => ({
             x: Number(i.coordinates?.[0]),
             y: Number(i.coordinates?.[1]),
           }));
+
           checkEntityCollision(manifest.entities?.emitters || [], (i) => ({
             x: Number(i.position?.x),
             y: Number(i.position?.y),
           }));
+
           checkGeomSegments(manifest.geometry?.walls || []);
           checkGeomSegments(manifest.geometry?.portals || []);
           checkGeomSegments(manifest.geometry?.overhead || []);
@@ -924,15 +967,18 @@
             ? e.shiftKey
             : e.shiftKey || e.ctrlKey || e.metaKey;
           mapStore.selectItem(closestItem.id, isMulti);
+
           draggedItemId = closestItem.id;
           lastDragGrid = { x: currentGridX, y: currentGridY };
         } else {
           const isMulti = isTempSelect
             ? e.shiftKey
             : e.shiftKey || e.ctrlKey || e.metaKey;
+
           if (!isMulti) mapStore.clearSelection();
           isBoxSelecting = true;
           boxSelectStart = { x: coords.exactX, y: coords.exactY };
+
           boxSelectEnd = { x: coords.exactX, y: coords.exactY };
         }
       }
@@ -941,6 +987,7 @@
 
   function handlePointerMove(e) {
     if (!activeMap) return;
+
     const isTempSelect = (e.ctrlKey || e.metaKey) && activeTool !== "select";
     const currentToolAction = isTempSelect ? "select" : activeTool;
 
@@ -956,25 +1003,23 @@
 
     if (isPanning) {
       panX = originalPan.x + (e.clientX - dragStart.x);
+
       panY = originalPan.y + (e.clientY - dragStart.y);
       updateViewport();
       return;
     }
 
-    // THE FIX: Intercept movement for the Vision Token during Simulation Mode
-    if (mapStore.isSimulationModeActive) {
-      // If the mouse button is held down (dragging)
-      if (e.buttons === 1) {
-        mapStore.updateVisionToken(coords.exactX, coords.exactY);
-        mapStore.updateTrigger++;
+    // THE FIX: Cleanly route the drag command without locking out other panel tools
+    if (isDraggingVisionToken) {
+      mapStore.updateVisionToken(coords.exactX, coords.exactY);
 
-        // Phase 3 Backlog: Add your teleport bounding-box collision checks here!
-      }
-      return; // Prevent standard CAD tools from firing
+      mapStore.updateTrigger++;
+      return;
     }
 
     if (isGridAligning) {
       const rect = canvasContainer.getBoundingClientRect();
+
       const worldX = (e.clientX - rect.left - panX) / scale;
       const worldY = (e.clientY - rect.top - panY) / scale;
 
@@ -982,6 +1027,7 @@
         x: worldX - (Number(activeMap.manifest.resolution.map_offset_x) || 0),
         y: worldY - (Number(activeMap.manifest.resolution.map_offset_y) || 0),
       };
+
       return;
     }
 
@@ -1023,6 +1069,7 @@
   function handlePointerUp(e) {
     if (isDraggingVisionToken) {
       isDraggingVisionToken = false;
+
       return;
     }
 
@@ -1055,12 +1102,12 @@
     if (isBoxSelecting && boxSelectStart && boxSelectEnd) {
       const minX = Math.min(boxSelectStart.x, boxSelectEnd.x),
         maxX = Math.max(boxSelectStart.x, boxSelectEnd.x);
+
       const minY = Math.min(boxSelectStart.y, boxSelectEnd.y),
         maxY = Math.max(boxSelectStart.y, boxSelectEnd.y);
       const manifest = activeMap.manifest;
 
       const hits = [];
-
       const inBox = (x, y) => x >= minX && x <= maxX && y >= minY && y <= maxY;
 
       const checkEntities = (items, getPos) =>
@@ -1082,22 +1129,27 @@
         x: Number(i.position?.x),
         y: Number(i.position?.y),
       }));
+
       checkEntities(manifest.entities?.audio?.zones || [], (i) => ({
         x: Number(i.center?.x),
         y: Number(i.center?.y),
       }));
+
       checkEntities(manifest.entities?.events || [], (i) => ({
         x: Number(i.trigger_bounds?.center?.x),
         y: Number(i.trigger_bounds?.center?.y),
       }));
+
       checkEntities(manifest.entities?.landing_zones || [], (i) => ({
         x: Number(i.coordinates?.[0]),
         y: Number(i.coordinates?.[1]),
       }));
+
       checkEntities(manifest.entities?.emitters || [], (i) => ({
         x: Number(i.position?.x),
         y: Number(i.position?.y),
       }));
+
       checkEntities(manifest.entities?.props || [], (i) => ({
         x: Number(i.position?.x),
         y: Number(i.position?.y),
@@ -1109,6 +1161,7 @@
 
       if (hits.length > 0) mapStore.selectItems(hits, true);
       isBoxSelecting = false;
+
       boxSelectStart = null;
       boxSelectEnd = null;
     }
@@ -1116,6 +1169,7 @@
 
   function handleWheel(e) {
     e.preventDefault();
+
     const rect = canvasContainer.getBoundingClientRect();
     const pointerX = e.clientX - rect.left;
     const pointerY = e.clientY - rect.top;
@@ -1124,6 +1178,7 @@
     const newScale = scale * zoom;
 
     panX = pointerX - (pointerX - panX) * (newScale / scale);
+
     panY = pointerY - (pointerY - panY) * (newScale / scale);
     scale = newScale;
     mapStore.zoomScale = Math.round(scale * 100);
@@ -1144,6 +1199,7 @@
       mapStore.selectedItemIds.length > 0
     ) {
       e.preventDefault();
+
       const manifest = activeMap?.manifest;
       if (!manifest) return;
 
@@ -1155,8 +1211,11 @@
       let dy = 0;
 
       if (e.key === "ArrowUp") dy = -(1 / gridY) * multiplier;
+
       if (e.key === "ArrowDown") dy = (1 / gridY) * multiplier;
+
       if (e.key === "ArrowLeft") dx = -(1 / gridX) * multiplier;
+
       if (e.key === "ArrowRight") dx = (1 / gridX) * multiplier;
 
       mapStore.translateSelection(dx, dy);
@@ -1165,11 +1224,13 @@
 
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
       e.preventDefault();
+
       e.shiftKey ? mapStore.redo() : mapStore.undo();
       return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
       e.preventDefault();
+
       mapStore.redo();
       return;
     }
@@ -1186,17 +1247,21 @@
 
     if (e.key === "Escape") {
       mapStore.closeContextMenu();
+
       if (isGridAligning || mapStore.gridAlignBoxes.length > 0) {
         isGridAligning = false;
         alignBoxStart = null;
+
         alignBoxEnd = null;
         mapStore.clearGridAlignment();
       } else if (isBoxSelecting) {
         isBoxSelecting = false;
+
         boxSelectStart = null;
         boxSelectEnd = null;
       } else if (draftingPath.length > 0) {
         draftingPath = [];
+
         draftingPreview = null;
       } else {
         mapStore.clearSelection();
@@ -1205,6 +1270,7 @@
 
     if (e.key === "Enter" && draftingPath.length > 1) {
       mapStore.addGeometry(activeTool, [...draftingPath]);
+
       draftingPath = [];
       draftingPreview = null;
     }
@@ -1245,20 +1311,20 @@
 ></div>
 
 {#if activeMap && isPixiReady}
-  {#if !isSimulationModeActive}
+  {#if !isSimOrPlayerView}
     <GridLayer parentContainer={viewportContainer} />
     <GeometryLayer parentContainer={viewportContainer} />
   {/if}
 
   <EntitiesLayer parentContainer={viewportContainer} />
 
-  {#if isSimulationModeActive}
+  {#if isSimOrPlayerView}
     <SimulationLayer parentContainer={viewportContainer} />
   {/if}
 
   <ShadowLayer parentContainer={viewportContainer} />
 
-  {#if !isSimulationModeActive}
+  {#if !isSimOrPlayerView}
     <OverlayLayer
       parentContainer={overlayContainer}
       {isBoxSelecting}
@@ -1272,7 +1338,7 @@
     />
   {/if}
 
-  {#if !isSimulationModeActive}
+  {#if !isSimOrPlayerView}
     {@const exactX = Number(mapStore.mouseX || 0)}
     {@const exactY = Number(mapStore.mouseY || 0)}
     {@const macroCol = Math.floor(exactX)}
@@ -1315,7 +1381,7 @@
   {/if}
 {/if}
 
-{#if mapStore.contextMenu.show && !isSimulationModeActive}
+{#if mapStore.contextMenu.show && !isSimOrPlayerView}
   <div
     class="context-menu"
     style="left: {mapStore.contextMenu.x}px; top: {mapStore.contextMenu.y}px;"
@@ -1324,30 +1390,26 @@
     <button
       class="context-btn"
       onclick={() => mapStore.toggleSelectionVisibility()}
+      >👁️ Toggle Visibility (GM/Player)</button
     >
-      👁️ Toggle Visibility (GM/Player)
-    </button>
-    <button class="context-btn" onclick={() => mapStore.toggleSelectionLock()}>
-      🔒 Toggle Lock Position
-    </button>
-    <div class="context-divider"></div>
-    <button class="context-btn" onclick={() => mapStore.adjustZIndex(1)}>
-      ⬆️ Send Forward
-    </button>
-    <button class="context-btn" onclick={() => mapStore.adjustZIndex(-1)}>
-      ⬇️ Send Backward
-    </button>
-    <div class="context-divider"></div>
-    <button class="context-btn" onclick={() => mapStore.packCompoundAsset()}>
-      📦 Pack to .uvtt2a Asset
-    </button>
-    <div class="context-divider"></div>
-    <button
-      class="context-btn danger"
-      onclick={() => mapStore.deleteSelected()}
+    <button class="context-btn" onclick={() => mapStore.toggleSelectionLock()}
+      >🔒 Toggle Lock Position</button
     >
-      🗑️ Delete
-    </button>
+    <div class="context-divider"></div>
+    <button class="context-btn" onclick={() => mapStore.adjustZIndex(1)}
+      >⬆️ Send Forward</button
+    >
+    <button class="context-btn" onclick={() => mapStore.adjustZIndex(-1)}
+      >⬇️ Send Backward</button
+    >
+    <div class="context-divider"></div>
+    <button class="context-btn" onclick={() => mapStore.packCompoundAsset()}
+      >📦 Pack to .uvtt2a Asset</button
+    >
+    <div class="context-divider"></div>
+    <button class="context-btn danger" onclick={() => mapStore.deleteSelected()}
+      >🗑️ Delete</button
+    >
   </div>
 {/if}
 

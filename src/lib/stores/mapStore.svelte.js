@@ -1,13 +1,17 @@
 /**
  * @fileoverview Central Map Engine State Store (Svelte 5)
- * Handles all geometric, entity, and state mutations for the VTT.
- * Includes native support for history (Undo/Redo), spatial indexing (QuadTrees),
- * grid alignment math, and Universal VTT Compound Asset (.uvtt2a) packaging.
+ * Radically refactored and modularized. Holds core state and delegates heavy operations.
  */
 
-import { QuadTree, pointsToBezier } from '$lib/utils/spatial.js';
+import { QuadTree } from '$lib/utils/spatial.js';
 import { saveToDB, loadFromDB } from '$lib/utils/database.js';
 import { verifyAndCleanManifest } from '$lib/utils/schema.js';
+import { HistoryManager } from './historyManager.svelte.js';
+import { GridEngine } from './gridEngine.svelte.js';
+import { GeometryMutator } from './geometryMutator.svelte.js';
+import { ValidatorStore } from './validatorStore.svelte.js';
+import { AssetPackager } from './assetPackager.svelte.js';
+import { GlobalAssetStore } from './globalAssetStore.svelte.js';
 import {
     downloadBlob,
     downloadJSON,
@@ -17,31 +21,29 @@ import {
     exportCompoundVTT,
     exportSecureVTT,
     loadProjectFromFile,
-    importImageAsMap,
-    exportAssetPackage,
-    importAssetPackage
+    importImageAsMap
 } from '$lib/utils/projectIO.js';
 
 class MapStore {
     // --- CORE SVELTE 5 REACTIVE STATE ---
     activeMapId = $state(null);
     catalog = $state([]);
-    updateTrigger = $state(0); // Bumps when DOM UI needs to re-render
+    updateTrigger = $state(0);
     selectedItemIds = $state([]);
     clipboard = $state([]);
     lightingPreview = $state(false);
-    isSimulationModeActive = $state(false); // NEW: Desktop Pro VTT Simulation Mode
+    isSimulationModeActive = $state(false); 
     activeTool = $state("select");
     draftingMode = $state("straight"); 
     audioBlobs = $state({}); 
-    quadtree = $state(null); // Spatial index for rapid 2D raycasting/selection
+    quadtree = $state(null); 
     
     // --- CAD STATUS BAR METRICS ---
     mouseX = $state(0.00);
     mouseY = $state(0.00);
     zoomScale = $state(100);
-    cameraX = $state(0.00); // Exposes Camera X for Cinematic Exporter
-    cameraY = $state(0.00); // Exposes Camera Y for Cinematic Exporter
+    cameraX = $state(0.00); 
+    cameraY = $state(0.00); 
     
     // --- GRID ALIGNMENT STATE ---
     gridAlignBoxes = $state([]);
@@ -50,16 +52,12 @@ class MapStore {
     vision = $state({
         enabled: false,
         token: { x: 0, y: 0, radius: 5 },
-        showFov: true
+        showFov: true,
+        mode: 'infinite'
     });
 
     // --- CONTEXT MENU STATE ---
     contextMenu = $state({ show: false, x: 0, y: 0 });
-
-    // --- GLOBAL ASSET LIBRARY ---
-    globalAssets = $state({ images: [], audio: [] });
-    mountedAssetDirectory = $state("");
-    _wailsRetryCount = 0;
 
     _saveTimeout = null;
 
@@ -78,7 +76,13 @@ class MapStore {
     });
 
     constructor() {
-        // Hydrate from IndexedDB on startup
+        this.historyManager = new HistoryManager(this);
+        this.gridEngine = new GridEngine(this);
+        this.geometryMutator = new GeometryMutator(this);
+        this.validatorStore = new ValidatorStore(this);
+        this.assetPackager = new AssetPackager(this);
+        this.globalAssetStore = new GlobalAssetStore(this);
+
         loadFromDB('autosave').then(saved => {
             if (saved && saved.catalog && saved.catalog.length > 0) {
                 this.catalog = saved.catalog.map(mapDef => ({
@@ -91,21 +95,50 @@ class MapStore {
             }
         });
 
-        // Initialize the auto-mount sequence for native Wails desktop
-        this.initGlobalAssets();
+        this.globalAssetStore.initGlobalAssets();
     }
 
     get activeMap() { return this.catalog.find(m => m.id === this.activeMapId) || null; }
-    
-    // Alias to trigger PixiJS re-renders
     get redrawTick() { return this.updateTrigger; }
 
-    /**
-     * Resolves a fully populated entity or geometry object from a UUID.
-     * Checks all manifest categories.
-     * @param {string} id - The UUID of the object to find.
-     * @returns {Object|null}
-     */
+    // ========================================================================
+    // DELEGATED ALIASES (Ensures UI components don't break during refactor)
+    // ========================================================================
+    initHistory() { this.historyManager.initHistory(); }
+    pushHistory(actionName) { this.historyManager.pushHistory(actionName); }
+    undo() { this.historyManager.undo(); }
+    redo() { this.historyManager.redo(); }
+    jumpToHistory(index) { this.historyManager.jumpToHistory(index); }
+    clearHistory() { this.historyManager.clearHistory(); }
+
+    setGridOrigin(x, y) { this.gridEngine.setGridOrigin(x, y); }
+    stepGridOffset(x, y) { this.gridEngine.stepGridOffset(x, y); }
+    calculateGridAlignment(s) { this.gridEngine.calculateGridAlignment(s); }
+    updateManualGrid(nx, ny, ox, oy) { this.gridEngine.updateManualGrid(nx, ny, ox, oy); }
+    clearGridAlignment() { this.gridEngine.clearGridAlignment(); }
+
+    deleteVectorNode(x, y, t) { return this.geometryMutator.deleteVectorNode(x, y, t); }
+    splitVectorNode(x, y, t) { return this.geometryMutator.splitVectorNode(x, y, t); }
+    updateSingleNodePosition(id, idx, x, y) { this.geometryMutator.updateSingleNodePosition(id, idx, x, y); }
+    addGeometry(type, path, isB) { this.geometryMutator.addGeometry(type, path, isB); }
+    convertCategory(id, t, p) { this.geometryMutator.convertCategory(id, t, p); }
+    smoothSelectedWalls() { this.geometryMutator.smoothSelectedWalls(); }
+
+    healGeometry() { this.validatorStore.healGeometry(); }
+
+    packCompoundAsset() { this.assetPackager.packCompoundAsset(); }
+    async loadCompoundAssetFromFile(f, x, y) { return await this.assetPackager.loadCompoundAssetFromFile(f, x, y); }
+    spawnCompoundAsset(x, y, p, a) { this.assetPackager.spawnCompoundAsset(x, y, p, a); }
+
+    get globalAssets() { return this.globalAssetStore.globalAssets; }
+    get mountedAssetDirectory() { return this.globalAssetStore.mountedAssetDirectory; }
+    async mountAssetLibrary() { return await this.globalAssetStore.mountAssetLibrary(); }
+    async refreshAssetLibrary() { return await this.globalAssetStore.refreshAssetLibrary(); }
+    addProp(x, y, i, n) { this.globalAssetStore.addProp(x, y, i, n); }
+
+    // ========================================================================
+    // CORE STORE METHODS
+    // ========================================================================
     getItem(id) {
         if (!this.activeMap) return null;
         const m = this.activeMap.manifest;
@@ -122,7 +155,6 @@ class MapStore {
         return found || null;
     }
 
-    // --- CONTEXT MENU QUICK ACTIONS ---
     openContextMenu(x, y) {
         this.contextMenu = { show: true, x, y };
         this.updateTrigger++;
@@ -168,142 +200,6 @@ class MapStore {
         this.closeContextMenu();
     }
 
-    // --- GRID ALIGNMENT CONTROLLER ---
-    setGridOrigin(imagePixelX, imagePixelY) {
-        if (!this.activeMap) return;
-        const res = this.activeMap.manifest.resolution;
-        
-        const gridX = Number(res.pixels_per_grid) || 70;
-        const gridY = Number(res.pixels_per_grid_y) || gridX;
-
-        const modX = ((imagePixelX % gridX) + gridX) % gridX;
-        const modY = ((imagePixelY % gridY) + gridY) % gridY;
-
-        res.map_offset_x = -modX;
-        res.map_offset_y = -modY;
-        
-        this.pushHistory("Pinned Grid Origin");
-        this.updateTrigger++;
-    }
-
-    stepGridOffset(stepsX, stepsY) {
-        if (!this.activeMap) return;
-        const res = this.activeMap.manifest.resolution;
-        
-        const gridX = Number(res.pixels_per_grid) || 70;
-        const gridY = Number(res.pixels_per_grid_y) || gridX;
-        
-        res.map_offset_x = (Number(res.map_offset_x) || 0) + (stepsX * gridX);
-        res.map_offset_y = (Number(res.map_offset_y) || 0) + (stepsY * gridY);
-        
-        this.pushHistory("Stepped Grid Offset");
-        this.updateTrigger++;
-    }
-
-    /**
-     * Applies rubber-sheeting math based on user-drawn calibration boxes.
-     * @param {number} squares - The number of grid squares each box represents. Default is 1.
-     */
-    calculateGridAlignment(squares = 1) {
-        if (!this.activeMap || this.gridAlignBoxes.length === 0 || squares <= 0) return;
-        const boxes = this.gridAlignBoxes;
-        
-        let sumW = 0, sumH = 0;
-        let validCount = 0;
-
-        // 1. Calculate the raw pixel dimensions of the drawn boxes
-        boxes.forEach(b => {
-            const w = Math.abs(b.ex - b.sx);
-            const h = Math.abs(b.ey - b.sy);
-            if (w > 10 && h > 10) {
-                sumW += w;
-                sumH += h;
-                validCount++;
-            }
-        });
-
-        if (validCount === 0) {
-            this.gridAlignBoxes = [];
-            return;
-        }
-
-        // 2. Average the boxes and divide by the number of grid squares to find the new Pixels Per Grid
-        const averageBoxWidth = sumW / validCount;
-        const averageBoxHeight = sumH / validCount;
-
-        const newPpgX = Math.max(10, averageBoxWidth / squares);
-        const newPpgY = Math.max(10, averageBoxHeight / squares);
-        
-        // 3. Use the first drawn box as the origin anchor
-        const anchorX = Math.min(boxes[0].sx, boxes[0].ex);
-        const anchorY = Math.min(boxes[0].sy, boxes[0].ey);
-        
-        const res = this.activeMap.manifest.resolution;
-        const oldPpgX = Number(res.pixels_per_grid) || 70;
-        const oldPpgY = Number(res.pixels_per_grid_y) || oldPpgX;
-        
-        // Preserve old pixel dimensions to recalculate map_size array
-        const pixelWidth = (res.map_size[0] || 50) * oldPpgX;
-        const pixelHeight = (res.map_size[1] || 50) * oldPpgY;
-        
-        // 4. Apply the new scaling math
-        res.pixels_per_grid = newPpgX;
-        res.pixels_per_grid_y = newPpgY; 
-        
-        res.map_size[0] = pixelWidth / newPpgX;
-        res.map_size[1] = pixelHeight / newPpgY;
-        
-        // 5. Align the origin to the top-left corner of the drawn box
-        const modX = ((anchorX % newPpgX) + newPpgX) % newPpgX;
-        const modY = ((anchorY % newPpgY) + newPpgY) % newPpgY;
-        
-        res.map_offset_x = -modX;
-        res.map_offset_y = -modY;
-
-        // 6. Clear the drawing tools and force a full system redraw
-        this.gridAlignBoxes = [];
-        this.setTool('select');
-        this.pushHistory("Rubber Sheet Grid Alignment");
-        this.updateTrigger++;
-    }
-
-    updateManualGrid(newPpgX, newPpgY, offX, offY) {
-        if (!this.activeMap) return;
-        const res = this.activeMap.manifest.resolution;
-        
-        const oldPpgX = Number(res.pixels_per_grid) || 70;
-        const oldPpgY = Number(res.pixels_per_grid_y) || oldPpgX;
-        
-        const pixelWidth = res.map_size[0] * oldPpgX;
-        const pixelHeight = res.map_size[1] * oldPpgY;
-
-        if (newPpgX !== null && !isNaN(newPpgX) && newPpgX > 0) {
-            res.pixels_per_grid = Number(newPpgX);
-            res.map_size[0] = pixelWidth / res.pixels_per_grid;
-            if (res.pixels_per_grid_y === undefined) {
-                res.pixels_per_grid_y = res.pixels_per_grid;
-                res.map_size[1] = pixelHeight / res.pixels_per_grid_y;
-            }
-        }
-        
-        if (newPpgY !== null && !isNaN(newPpgY) && newPpgY > 0) {
-            res.pixels_per_grid_y = Number(newPpgY);
-            res.map_size[1] = pixelHeight / res.pixels_per_grid_y;
-        }
-
-        if (offX !== null && !isNaN(offX)) res.map_offset_x = Number(offX);
-        if (offY !== null && !isNaN(offY)) res.map_offset_y = Number(offY);
-
-        this.pushHistory("Manual Grid Adjustment");
-        this.updateTrigger++;
-    }
-
-    clearGridAlignment() {
-        this.gridAlignBoxes = [];
-        this.updateTrigger++;
-    }
-
-    // --- VISION & SIMULATION CONTROLLER METHODS ---
     toggleVision() {
         this.vision.enabled = !this.vision.enabled;
         this.updateTrigger++;
@@ -314,11 +210,8 @@ class MapStore {
         this.updateTrigger++;
     }
 
-    // NEW: VTT Simulation Mode Toggle
     toggleSimulationMode() {
         this.isSimulationModeActive = !this.isSimulationModeActive;
-        
-        // Auto-deselect tools/items to clean up the UI
         if (this.isSimulationModeActive) {
             this.selectedItemIds = [];
             this.activeTool = "select"; 
@@ -333,10 +226,6 @@ class MapStore {
         this.updateTrigger++;
     }
 
-    /**
-     * Rebuilds the internal QuadTree.
-     * Crucial for O(log n) spatial lookups during Context Menus and Box Selections.
-     */
     updateSpatialIndex() {
         if (!this.activeMap) return;
         const m = this.activeMap.manifest;
@@ -356,7 +245,6 @@ class MapStore {
         indexEntity(m.entities?.props, i => ({x: i.position.x, y: i.position.y}));
     }
 
-    // --- IO & PERSISTENCE DELEGATES ---
     triggerAutoSave() {
         clearTimeout(this._saveTimeout);
         this._saveTimeout = setTimeout(async () => {
@@ -365,13 +253,12 @@ class MapStore {
                 activeMapId: this.activeMapId
             }));
             await saveToDB('autosave', dataToSave);
-        }, 2000); // 2 second debounce
+        }, 2000); 
     }
 
     downloadBlob(filename, blob) { downloadBlob(filename, blob); }
     downloadJSON(filename, data) { downloadJSON(filename, data); }
     
-    // NEW FIX: All IO delegates must `await` and `return` their promises to block the Svelte UI spinner!
     async saveProject() { return await saveProject(this); }
     closeProject() {
         this.catalog = [];
@@ -389,7 +276,6 @@ class MapStore {
     async loadProjectFromFile(file) { return await loadProjectFromFile(this, file); }
     async importImageAsMap(file) { return await importImageAsMap(this, file); }
 
-    // --- LEVEL MANAGEMENT ---
     setCatalog(newCatalog) {
         this.catalog = newCatalog;
         if (this.catalog.length > 0 && !this.activeMapId) {
@@ -479,7 +365,6 @@ class MapStore {
         }
     }
 
-    // --- TOOL & SELECTION ---
     setTool(tool) {
         this.activeTool = tool;
         this.selectedItemIds = [];
@@ -520,246 +405,6 @@ class MapStore {
         }
     }
 
-    // --- HISTORY ENGINE (UNDO/REDO) ---
-    initHistory() {
-        const activeMap = this.activeMap;
-        if (!activeMap) return;
-        if (!activeMap.history) {
-            activeMap.history = [{
-                actionName: "Initial Load",
-                timestamp: Date.now(),
-                snapshot: JSON.parse(JSON.stringify(activeMap.manifest))
-            }];
-            activeMap.historyIndex = 0;
-        }
-    }
-
-    /**
-     * Saves a full deep clone of the current manifest to the history stack.
-     * Prevents deep-clone thrashing via a 1000ms debounce on "Rapid Updates".
-     */
-    pushHistory(actionName) {
-        const activeMap = this.activeMap;
-        if (!activeMap) return;
-        this.initHistory();
-
-        const now = Date.now();
-        const lastAction = activeMap.history[activeMap.historyIndex];
-
-        const isRapidUpdate = lastAction && lastAction.actionName === actionName && (now - lastAction.timestamp < 1000);
-
-        // Truncate future history if branching from an undo
-        if (!isRapidUpdate) {
-            activeMap.history = activeMap.history.slice(0, activeMap.historyIndex + 1);
-        }
-
-        const snapshot = JSON.parse(JSON.stringify(activeMap.manifest));
-
-        if (isRapidUpdate) {
-            activeMap.history[activeMap.historyIndex].snapshot = snapshot;
-            activeMap.history[activeMap.historyIndex].timestamp = now;
-        } else {
-            activeMap.history.push({ actionName, timestamp: now, snapshot });
-            activeMap.historyIndex++;
-            if (activeMap.history.length > 50) {  // Maximum 50 undo states per level
-                activeMap.history.shift();
-                activeMap.historyIndex--;
-            }
-        }
-        this.updateSpatialIndex();
-        this.updateTrigger++;
-        this.triggerAutoSave();
-    }
-
-    undo() {
-        const activeMap = this.activeMap;
-        if (!activeMap || !activeMap.history || activeMap.historyIndex <= 0) return;
-        activeMap.historyIndex--;
-        const state = activeMap.history[activeMap.historyIndex];
-        activeMap.manifest = JSON.parse(JSON.stringify(state.snapshot));
-        this.selectedItemIds = [];
-        this.updateSpatialIndex();
-        this.updateTrigger++;
-        this.triggerAutoSave();
-    }
-
-    redo() {
-        const activeMap = this.activeMap;
-        if (!activeMap || !activeMap.history || activeMap.historyIndex >= activeMap.history.length - 1) return;
-        activeMap.historyIndex++;
-        const state = activeMap.history[activeMap.historyIndex];
-        activeMap.manifest = JSON.parse(JSON.stringify(state.snapshot));
-        this.selectedItemIds = [];
-        this.updateSpatialIndex();
-        this.updateTrigger++;
-        this.triggerAutoSave();
-    }
-
-    jumpToHistory(index) {
-        const activeMap = this.activeMap;
-        if (!activeMap || !activeMap.history || index < 0 || index >= activeMap.history.length) return;
-        activeMap.historyIndex = index;
-        const state = activeMap.history[index];
-        activeMap.manifest = JSON.parse(JSON.stringify(state.snapshot));
-        this.selectedItemIds = [];
-        this.updateSpatialIndex();
-        this.updateTrigger++;
-        this.triggerAutoSave();
-    }
-
-    clearHistory() {
-        const activeMap = this.activeMap;
-        if (!activeMap) return;
-
-        const currentState = JSON.parse(JSON.stringify(activeMap.manifest));
-        
-        activeMap.history = [{
-            actionName: "History Cleared",
-            timestamp: Date.now(),
-            snapshot: currentState
-        }];
-        activeMap.historyIndex = 0;
-
-        this.updateTrigger++;
-        this.triggerAutoSave();
-    }
-
-    // --- NODE MUTATIONS ---
-    deleteVectorNode(exactX, exactY, thresholdSq) {
-        const activeMap = this.activeMap;
-        if (!activeMap) return false;
-        let nodeDeleted = false;
-
-        ['walls', 'portals', 'overhead'].forEach(cat => {
-            if (!activeMap.manifest.geometry[cat]) return;
-            const newItems = [...activeMap.manifest.geometry[cat]]; 
-            
-            for (let itemIdx = newItems.length - 1; itemIdx >= 0; itemIdx--) {
-                const item = { ...newItems[itemIdx] }; 
-                if (!item.path) continue;
-                for (let i = 0; i < item.path.length; i++) {
-                    const px = Number(item.path[i].x);
-                    const py = Number(item.path[i].y);
-                    const distSq = (exactX - px) ** 2 + (exactY - py) ** 2;
-
-                    if (distSq < thresholdSq) {
-                        item.path = [...item.path];
-                        item.path.splice(i, 1);
-                        
-                        if (item.path.length < 2) {
-                            newItems.splice(itemIdx, 1);
-                            this.selectedItemIds = this.selectedItemIds.filter(id => id !== item.id);
-                            
-                            this.catalog.forEach(mapDef => {
-                                mapDef.manifest?.entities?.events?.forEach(ev => {
-                                    if (ev.target_entity_ids) {
-                                        ev.target_entity_ids = ev.target_entity_ids.filter(tid => tid !== item.id);
-                                    }
-                                });
-                            });
-                        } else {
-                            newItems[itemIdx] = item;
-                        }
-                        
-                        nodeDeleted = true;
-                        activeMap.manifest.geometry[cat] = newItems; 
-                        this.pushHistory("Delete Vector Node");
-                        this.updateSpatialIndex();
-                        this.updateTrigger++;
-                        return; 
-                    }
-                }
-            }
-        });
-        return nodeDeleted;
-    }
-
-    splitVectorNode(exactX, exactY, thresholdSq) {
-        const activeMap = this.activeMap;
-        if (!activeMap) return false;
-        let splitOccurred = false;
-
-        ['walls', 'portals', 'overhead'].forEach(cat => {
-            if (!activeMap.manifest.geometry[cat]) return;
-            const newItems = [...activeMap.manifest.geometry[cat]]; 
-            
-            for (let itemIdx = 0; itemIdx < newItems.length; itemIdx++) {
-                if (splitOccurred) continue;
-                const item = { ...newItems[itemIdx] };
-                if (!item.path || item.path.length < 2) continue;
-                
-                for (let i = 0; i < item.path.length - 1; i++) {
-                    const x1 = Number(item.path[i].x);
-                    const y1 = Number(item.path[i].y);
-                    const x2 = Number(item.path[i + 1].x);
-                    const y2 = Number(item.path[i + 1].y);
-                    const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
-                    if (l2 === 0) continue;
-
-                    let t = Math.max(0, Math.min(1, ((exactX - x1) * (x2 - x1) + (exactY - y1) * (y2 - y1)) / l2));
-                    const projX = x1 + t * (x2 - x1);
-                    const projY = y1 + t * (y2 - y1);
-                    const distSq = (exactX - projX) ** 2 + (exactY - projY) ** 2;
-
-                    if (distSq < thresholdSq) {
-                        const splitPoint = { x: exactX, y: exactY };
-                        const path1 = [...item.path.slice(0, i + 1), splitPoint];
-                        const path2 = [splitPoint, ...item.path.slice(i + 1)];
-
-                        item.path = path1;
-                        newItems[itemIdx] = item;
-
-                        const newItem = {
-                            id: crypto.randomUUID(),
-                            path: path2,
-                            height: JSON.parse(JSON.stringify(item.height)), 
-                            properties: JSON.parse(JSON.stringify(item.properties)) 
-                        };
-                        if (item.isBezier !== undefined) newItem.isBezier = item.isBezier;
-
-                        newItems.splice(itemIdx + 1, 0, newItem);
-                        
-                        splitOccurred = true;
-                        activeMap.manifest.geometry[cat] = newItems;
-                        this.pushHistory("Cut Vector Segment");
-                        this.updateSpatialIndex();
-                        this.updateTrigger++;
-                        return; 
-                    }
-                }
-            }
-        });
-        return splitOccurred;
-    }
-
-    updateSingleNodePosition(id, nodeIndex, exactX, exactY) {
-        const activeMap = this.activeMap;
-        if (!activeMap) return;
-        const m = activeMap.manifest;
-        
-        ['walls', 'portals', 'overhead'].forEach(cat => {
-            if (!m.geometry[cat]) return;
-            const itemIndex = m.geometry[cat].findIndex(i => i.id === id);
-            if (itemIndex > -1) {
-                const newItems = [...m.geometry[cat]];
-                const item = { ...newItems[itemIndex] };
-                if (item.path && item.path[nodeIndex]) {
-                    item.path = [...item.path];
-                    item.path[nodeIndex].x = exactX;
-                    item.path[nodeIndex].y = exactY;
-                    newItems[itemIndex] = item;
-                    m.geometry[cat] = newItems; 
-                }
-            }
-        });
-
-        this.activeMap.manifest = { ...m };
-        this.pushHistory("Moved Vector Node");
-        this.updateSpatialIndex();
-        this.updateTrigger++;
-    }
-
-    // --- ENTITY CREATION & DEFAULTS ---
     updateDefaultSetting(category, keyPath, value) {
         let obj = this.defaultSettings[category];
         const keys = keyPath.split('.');
@@ -770,81 +415,6 @@ class MapStore {
         obj[keys[keys.length - 1]] = value;
         this.defaultSettings = { ...this.defaultSettings };
         this.updateTrigger++; 
-    }
-
-    addGeometry(type, path, isBezier = false) {
-        const activeMap = this.activeMap;
-        if (!activeMap) return;
-        const id = crypto.randomUUID();
-        if (type === 'wall') {
-            if (!activeMap.manifest.geometry.walls) activeMap.manifest.geometry.walls = [];
-            activeMap.manifest.geometry.walls.push({ id, path, isBezier, height: JSON.parse(JSON.stringify(this.defaultSettings.wall.height)), properties: JSON.parse(JSON.stringify(this.defaultSettings.wall.properties)) });
-        } else if (type === 'portal') {
-            if (!activeMap.manifest.geometry.portals) activeMap.manifest.geometry.portals = [];
-            activeMap.manifest.geometry.portals.push({ id, path, isBezier, height: JSON.parse(JSON.stringify(this.defaultSettings.portal.height)), properties: JSON.parse(JSON.stringify(this.defaultSettings.portal.properties)) });
-        } else if (type === 'roof') {
-            if (!activeMap.manifest.geometry.overhead) activeMap.manifest.geometry.overhead = [];
-            activeMap.manifest.geometry.overhead.push({ id, path, height: JSON.parse(JSON.stringify(this.defaultSettings.roof.height)), properties: JSON.parse(JSON.stringify(this.defaultSettings.roof.properties)) });
-        }
-        this.activeMap.manifest = { ...activeMap.manifest };
-        this.pushHistory(`Added ${type}`);
-        this.updateSpatialIndex();
-    }
-
-    // --- BULK HEAL GEOMETRY (NEW MACRO) ---
-    healGeometry() {
-        const activeMap = this.activeMap;
-        if (!activeMap || !activeMap.manifest.geometry) return;
-
-        const m = activeMap.manifest;
-        const threshold = 0.1; // 0.1 grid units tolerance for microscopic gaps
-        const thresholdSq = threshold * threshold;
-        let mergeCount = 0;
-
-        const allVertices = [];
-        
-        ['walls', 'portals', 'overhead'].forEach(cat => {
-            if (!m.geometry[cat]) return;
-            m.geometry[cat].forEach(item => {
-                if (!item.path) return;
-                item.path.forEach(pt => {
-                    allVertices.push(pt); 
-                });
-            });
-        });
-
-        // O(n^2) comparison - safe because map vertex counts are generally in the low thousands
-        for (let i = 0; i < allVertices.length; i++) {
-            const pt1 = allVertices[i];
-            const x1 = Number(pt1.x);
-            const y1 = Number(pt1.y);
-
-            for (let j = i + 1; j < allVertices.length; j++) {
-                const pt2 = allVertices[j];
-                const x2 = Number(pt2.x);
-                const y2 = Number(pt2.y);
-
-                if (x1 === x2 && y1 === y2) continue;
-
-                const distSq = (x2 - x1) ** 2 + (y2 - y1) ** 2;
-
-                if (distSq < thresholdSq) {
-                    pt2.x = x1;
-                    pt2.y = y1;
-                    mergeCount++;
-                }
-            }
-        }
-
-        if (mergeCount > 0) {
-            ['walls', 'portals', 'overhead'].forEach(cat => {
-                if (m.geometry[cat]) m.geometry[cat] = [...m.geometry[cat]];
-            });
-            this.activeMap.manifest = { ...m };
-            this.pushHistory(`Healed Geometry (${mergeCount} vertices merged)`);
-            this.updateSpatialIndex();
-            this.updateTrigger++;
-        }
     }
 
     addLight(x, y) {
@@ -923,7 +493,6 @@ class MapStore {
                 const targetEventId = crypto.randomUUID();
                 const localSpawnId = crypto.randomUUID();
                 const targetSpawnId = crypto.randomUUID();
-                
                 const offset = 1; 
 
                 newEvent.targetSpawnId = targetSpawnId;
@@ -1017,7 +586,6 @@ class MapStore {
         this.updateSpatialIndex();
     }
 
-    // --- UNIVERSAL MUTATOR ---
     updateItemProperty(id, keyPath, value) {
         const activeMap = this.activeMap;
         if (!activeMap) return;
@@ -1102,7 +670,6 @@ class MapStore {
         if (!activeMap) return;
         const m = activeMap.manifest;
         
-        // Enforce Lock Constraint
         const itemLockCheck = this.getItem(id);
         if (itemLockCheck && itemLockCheck.properties?.locked) return;
         
@@ -1146,7 +713,6 @@ class MapStore {
         const m = activeMap.manifest;
         
         this.selectedItemIds.forEach(id => {
-            // Enforce Lock Constraint
             const itemLockCheck = this.getItem(id);
             if (itemLockCheck && itemLockCheck.properties?.locked) return;
             
@@ -1234,92 +800,6 @@ class MapStore {
         this.closeContextMenu();
     }
 
-    convertCategory(id, targetCategory, portalType = 'door') {
-        const activeMap = this.activeMap;
-        if (!activeMap) return;
-        const m = activeMap.manifest;
-        let foundItem = null;
-        ['walls', 'portals'].forEach(cat => {
-            const itemIndex = m.geometry[cat]?.findIndex(i => i.id === id);
-            if (itemIndex > -1) {
-                foundItem = m.geometry[cat].splice(itemIndex, 1)[0];
-                m.geometry[cat] = [...m.geometry[cat]]; 
-            }
-        });
-        if (foundItem) {
-            if (targetCategory === 'portals') {
-                if (!foundItem.properties) foundItem.properties = {};
-                foundItem.properties.type = portalType;
-                foundItem.properties.state = 'closed';
-            } else {
-                if (foundItem.properties) { delete foundItem.properties.type; delete foundItem.properties.state; }
-            }
-            if (!m.geometry[targetCategory]) m.geometry[targetCategory] = [];
-            m.geometry[targetCategory].push(foundItem);
-            m.geometry[targetCategory] = [...m.geometry[targetCategory]]; 
-            
-            this.activeMap.manifest = { ...m };
-            this.pushHistory("Converted Entity");
-            this.updateSpatialIndex();
-        }
-    }
-
-    /**
-     * ITERATIVE CHAIKIN'S CORNER CUTTING (SubD Modeling)
-     * Mutates sharp vector lines into butter-smooth curves without detaching them from intersections.
-     * Uses a single-pass loop so the user can iteratively subdivide via the UI button.
-     */
-    smoothSelectedWalls() {
-        const activeMap = this.activeMap;
-        if (!activeMap || this.selectedItemIds.length === 0) return;
-        const m = activeMap.manifest;
-        let modified = false;
-
-        this.selectedItemIds.forEach(id => {
-            const wallIndex = m.geometry.walls?.findIndex(i => i.id === id);
-            if (wallIndex > -1) {
-                const newWalls = [...m.geometry.walls];
-                const wall = { ...newWalls[wallIndex] };
-                
-                // Mathematical prerequisite: cannot curve a 2-point straight line
-                if (wall.path && wall.path.length >= 3) {
-                    let smoothedPath = wall.path.map(pt => ({ x: Number(pt.x), y: Number(pt.y) }));
-                    
-                    // Exactly ONE iteration per invocation
-                    const newPath = [];
-                    for (let i = 0; i < smoothedPath.length - 1; i++) {
-                        const p0 = smoothedPath[i];
-                        const p1 = smoothedPath[i + 1];
-                        
-                        // Calculate 25% and 75% marks along the line segment
-                        newPath.push({ x: p0.x * 0.75 + p1.x * 0.25, y: p0.y * 0.75 + p1.y * 0.25 });
-                        newPath.push({ x: p0.x * 0.25 + p1.x * 0.75, y: p0.y * 0.25 + p1.y * 0.75 });
-                    }
-                    
-                    // Always perfectly pin the absolute start and end coordinates
-                    smoothedPath = [
-                        { x: smoothedPath[0].x, y: smoothedPath[0].y },
-                        ...newPath,
-                        { x: smoothedPath[smoothedPath.length - 1].x, y: smoothedPath[smoothedPath.length - 1].y }
-                    ];
-
-                    wall.path = smoothedPath;
-                    wall.isBezier = true; 
-                    newWalls[wallIndex] = wall;
-                    m.geometry.walls = newWalls;
-                    modified = true;
-                }
-            }
-        });
-        
-        // Push State History and trigger canvas redraws
-        if (modified) {
-            this.activeMap.manifest = { ...m };
-            this.pushHistory("Applied Smoothing Pass");
-            this.updateTrigger++;
-        }
-    }
-
     copySelected() {
         const activeMap = this.activeMap;
         if (!activeMap || this.selectedItemIds.length === 0) return;
@@ -1375,235 +855,6 @@ class MapStore {
         this.selectedItemIds = newSelection;
         this.pushHistory("Pasted Items");
         this.updateSpatialIndex();
-    }
-
-    // --- GLOBAL ASSET LIBRARY BRIDGE ---
-
-    // Automatically called on startup to wake up the saved directory
-    async initGlobalAssets() {
-        if (typeof window !== 'undefined' && window.go?.main?.App?.LoadSavedAssetDirectory) {
-            try {
-                const payload = await window.go.main.App.LoadSavedAssetDirectory();
-                this.processAssetPayload(payload);
-            } catch (err) {
-                console.error("Auto-mount failed:", err);
-            }
-        } else if (this._wailsRetryCount < 10) {
-            // Wails bindings occasionally inject a fraction of a second after Svelte boots.
-            // This safely retries a few times before giving up if we are in a normal browser.
-            this._wailsRetryCount++;
-            setTimeout(() => this.initGlobalAssets(), 200);
-        }
-    }
-
-    async mountAssetLibrary() {
-        if (typeof window !== 'undefined' && window.go?.main?.App?.SelectAssetDirectory) {
-            try {
-                const payload = await window.go.main.App.SelectAssetDirectory();
-                this.processAssetPayload(payload);
-            } catch (err) {
-                console.error("Failed to load asset directory:", err);
-            }
-        } else {
-            alert("Asset Library requires the native Wails Desktop build running.");
-        }
-    }
-
-    async refreshAssetLibrary() {
-        if (typeof window !== 'undefined' && window.go?.main?.App?.LoadSavedAssetDirectory) {
-            try {
-                const payload = await window.go.main.App.LoadSavedAssetDirectory();
-                this.processAssetPayload(payload);
-            } catch (err) {
-                console.error("Failed to refresh asset directory:", err);
-            }
-        }
-    }
-
-    processAssetPayload(payload) {
-        if (!payload || !payload.assets || payload.assets.length === 0) return;
-        
-        const images = payload.assets.filter(a => a.type === 'image');
-        const audio = payload.assets.filter(a => a.type === 'audio');
-        
-        this.globalAssets = { images, audio };
-        this.mountedAssetDirectory = payload.directory;
-
-        const audioPromises = audio.map(async (a) => {
-            try {
-                const res = await fetch(a.data);
-                const blob = await res.blob();
-                this.audioBlobs[a.name] = blob;
-            } catch (e) {
-                console.error(`Failed to fetch local audio: ${a.name}`);
-            }
-        });
-        
-        Promise.all(audioPromises).then(() => {
-            this.updateTrigger++;
-        });
-    }
-
-    addProp(x, y, imageURL, name) {
-        const activeMap = this.activeMap;
-        if (!activeMap) return;
-        const ds = this.defaultSettings.prop;
-        const prop = {
-            id: crypto.randomUUID(),
-            name: name,
-            image: imageURL,
-            position: { x, y, z: ds.position.z },
-            rotation: ds.rotation,
-            scale: ds.scale,
-            properties: JSON.parse(JSON.stringify(ds.properties))
-        };
-        if (!activeMap.manifest.entities.props) activeMap.manifest.entities.props = [];
-        activeMap.manifest.entities.props.push(prop);
-        
-        this.activeMap.manifest = { ...activeMap.manifest };
-        this.pushHistory("Added Prop Asset");
-        this.updateSpatialIndex();
-        this.updateTrigger++;
-    }
-
-    // --- COMPOUND ASSET MACROS (.UVTT2A) ---
-    
-    /**
-     * Gathers a selected Prop graphic, scans for any overlapping sensory entities (lights/audio/emitters),
-     * mathematically calculates their offset, and streams them out via projectIO into a Zip archive.
-     */
-    packCompoundAsset() {
-        if (!this.activeMap || this.selectedItemIds.length !== 1) {
-            alert("Please select exactly one Prop base to package as a Compound Asset.");
-            return;
-        }
-        const propId = this.selectedItemIds[0];
-        const prop = this.activeMap.manifest.entities.props?.find(p => p.id === propId);
-        if (!prop) {
-            alert("The selected base item must be a Prop graphic.");
-            return;
-        }
-
-        const payload = {
-            type: "asset_prop",
-            name: prop.name || "Compound_Asset",
-            image: prop.image,
-            scale: prop.scale || 100,
-            auto_emits: { lights: [], audio: [], emitters: [] }
-        };
-
-        const px = prop.position.x;
-        const py = prop.position.y;
-        // Scoop up any elements sitting within a 1.5-grid-unit radius of the prop
-        const thresholdSq = 1.5 * 1.5; 
-        const getDistSq = (x1, y1, x2, y2) => (x2 - x1)**2 + (y2 - y1)**2;
-
-        (this.activeMap.manifest.entities.lights || []).forEach(l => {
-            if (getDistSq(px, py, l.position.x, l.position.y) <= thresholdSq) {
-                const cloned = JSON.parse(JSON.stringify(l));
-                cloned.offset_x = cloned.position.x - px; // Record relative deployment offset
-                cloned.offset_y = cloned.position.y - py;
-                delete cloned.id; delete cloned.position;
-                payload.auto_emits.lights.push(cloned);
-            }
-        });
-
-        (this.activeMap.manifest.entities.emitters || []).forEach(e => {
-            if (getDistSq(px, py, e.position.x, e.position.y) <= thresholdSq) {
-                const cloned = JSON.parse(JSON.stringify(e));
-                cloned.offset_x = cloned.position.x - px;
-                cloned.offset_y = cloned.position.y - py;
-                delete cloned.id; delete cloned.position;
-                payload.auto_emits.emitters.push(cloned);
-            }
-        });
-
-        (this.activeMap.manifest.entities.audio?.zones || []).forEach(a => {
-            if (getDistSq(px, py, a.center.x, a.center.y) <= thresholdSq) {
-                const cloned = JSON.parse(JSON.stringify(a));
-                cloned.offset_x = cloned.center.x - px;
-                cloned.offset_y = cloned.center.y - py;
-                delete cloned.id; delete cloned.center;
-                payload.auto_emits.audio.push(cloned);
-            }
-        });
-
-        exportAssetPackage(payload.name, payload, this.audioBlobs);
-        this.closeContextMenu();
-    }
-
-    /**
-     * Routes an ingested .uvtt2a file to the unpacker and prepares deployment.
-     */
-    async loadCompoundAssetFromFile(file, x, y) {
-        const data = await importAssetPackage(file);
-        if (!data) return;
-        this.spawnCompoundAsset(x, y, data.payload, data.extractedAudio);
-    }
-
-    /**
-     * Executes the automatic deployment of a compound asset.
-     * Places the base graphic, applies relative offsets to overlapping entities, 
-     * assigns fresh UUIDs, and forcefully syncs to the PixiJS canvas render loops.
-     */
-    spawnCompoundAsset(x, y, payload, extractedAudio = {}) {
-        const activeMap = this.activeMap;
-        if (!activeMap) return;
-
-        // Merge any internal audio directly into the store
-        for (const [track, blob] of Object.entries(extractedAudio)) {
-            this.audioBlobs[track] = blob;
-        }
-
-        // Deploy the base graphic
-        const propId = crypto.randomUUID();
-        const prop = {
-            id: propId,
-            name: payload.name,
-            image: payload.image,
-            position: { x, y, z: 0 },
-            rotation: 0,
-            scale: payload.scale || 100,
-            properties: { visibility: 'visible', z_index: 0, locked: false }
-        };
-        if (!activeMap.manifest.entities.props) activeMap.manifest.entities.props = [];
-        activeMap.manifest.entities.props.push(prop);
-
-        // Explode and deploy the sensory arrays based on saved offsets
-        if (payload.auto_emits) {
-            if (payload.auto_emits.lights) {
-                if (!activeMap.manifest.entities.lights) activeMap.manifest.entities.lights = [];
-                payload.auto_emits.lights.forEach(l => {
-                    const newLight = { ...l, id: crypto.randomUUID(), position: { x: x + (l.offset_x || 0), y: y + (l.offset_y || 0), z: l.z || 0 } };
-                    delete newLight.offset_x; delete newLight.offset_y; delete newLight.z;
-                    activeMap.manifest.entities.lights.push(newLight);
-                });
-            }
-            if (payload.auto_emits.emitters) {
-                if (!activeMap.manifest.entities.emitters) activeMap.manifest.entities.emitters = [];
-                payload.auto_emits.emitters.forEach(e => {
-                    const newEmitter = { ...e, id: crypto.randomUUID(), position: { x: x + (e.offset_x || 0), y: y + (e.offset_y || 0), z: e.z || 0 } };
-                    delete newEmitter.offset_x; delete newEmitter.offset_y; delete newEmitter.z;
-                    activeMap.manifest.entities.emitters.push(newEmitter);
-                });
-            }
-            if (payload.auto_emits.audio) {
-                if (!activeMap.manifest.entities.audio) activeMap.manifest.entities.audio = { zones: [] };
-                if (!activeMap.manifest.entities.audio.zones) activeMap.manifest.entities.audio.zones = [];
-                payload.auto_emits.audio.forEach(a => {
-                    const newAudio = { ...a, id: crypto.randomUUID(), center: { x: x + (a.offset_x || 0), y: y + (a.offset_y || 0) } };
-                    delete newAudio.offset_x; delete newAudio.offset_y;
-                    activeMap.manifest.entities.audio.zones.push(newAudio);
-                });
-            }
-        }
-
-        this.activeMap.manifest = { ...activeMap.manifest };
-        this.selectedItemIds = [propId];
-        this.setTool("select");
-        this.pushHistory("Spawned Compound Asset");
-        this.updateSpatialIndex();
-        this.updateTrigger++;
     }
 }
 

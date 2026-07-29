@@ -4,13 +4,13 @@
   "description": "A hardware-accelerated WebGPU tool to upgrade, repair, and link legacy VTT maps into the multi-floor UVTT v2 (.uvtt2z) format.",
   "icons": [
     {
-      "src": "favicon.svg",
+      "src": "/favicon.svg",
       "type": "image/svg+xml",
       "sizes": "any",
       "purpose": "any"
     },
     {
-      "src": "favicon.svg",
+      "src": "/favicon.svg",
       "type": "image/svg+xml",
       "sizes": "any",
       "purpose": "maskable"
