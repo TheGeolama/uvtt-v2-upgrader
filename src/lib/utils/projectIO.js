@@ -1,7 +1,7 @@
 /**
  * @fileoverview Universal VTT (UVTT) Input/Output Engine
  * Handles the compilation, ingestion, and encryption of map manifests and compound assets.
- * Adheres to Draft-07 of the Universal VTT schema specifications.
+ * Adheres to Draft-08 of the Universal VTT schema specifications.
  */
 
 import JSZip from 'jszip';
@@ -17,16 +17,10 @@ const Transport = {
     get isWails() { return typeof window !== 'undefined' && window.go?.main?.App; },
     get isLocalServer() { return typeof window !== 'undefined' && window.__SPA_SERVER_MODE__; },
 
-    /**
-     * Dynamically routes backend commands to either Wails IPC or SPA REST endpoints.
-     */
     async invoke(methodName, ...args) {
-        // 1. Desktop Pro (Wails Native Bridge)
         if (this.isWails && window.go.main.App[methodName]) {
             return await window.go.main.App[methodName](...args);
         }
-        
-        // 2. SPA Local Server (ARM64 REST Fallback)
         if (this.isLocalServer) {
             try {
                 const res = await fetch(`/api/${methodName}`, {
@@ -41,8 +35,6 @@ const Transport = {
                 throw e;
             }
         }
-
-        // 3. Pure Browser Sandbox
         throw new Error("No high-performance backend transport available.");
     }
 };
@@ -62,17 +54,11 @@ export function downloadBlob(filename, blob) {
     setTimeout(() => URL.revokeObjectURL(url), 1000); 
 }
 
-/**
- * Native OS Save Dialog Handler with Chunked Streaming.
- * Attempts high-performance backend chunking before degrading to HTML5 browser APIs.
- */
 export async function saveAsNative(blob, defaultFilename, description, extension) {
     try {
-        // 1. Attempt High-Performance Backend Routing
         const transferId = await Transport.invoke('StartSaveTransfer', defaultFilename, description, `*${extension}`);
-        if (!transferId) return; // User clicked Cancel in Native Dialog
+        if (!transferId) return; 
 
-        // Stream the file in 1MB chunks to prevent memory bloat
         const chunkSize = 1024 * 1024; 
         for (let i = 0; i < blob.size; i += chunkSize) {
             const chunk = blob.slice(i, i + chunkSize);
@@ -88,12 +74,10 @@ export async function saveAsNative(blob, defaultFilename, description, extension
         await Transport.invoke('FinishSaveTransfer', transferId);
         console.log(`Successfully saved natively to: ${transferId}`);
         return;
-
     } catch (err) {
         console.warn("Backend transport unavailable. Engaging HTML5 sandboxed fallbacks...");
     }
 
-    // 2. HTML5 File System Access API (Chrome/Edge)
     if (window.showSaveFilePicker) {
         try {
             const handle = await window.showSaveFilePicker({
@@ -105,12 +89,11 @@ export async function saveAsNative(blob, defaultFilename, description, extension
             await writable.close();
             return;
         } catch (err) {
-            if (err.name === 'AbortError') return; // User aborted
+            if (err.name === 'AbortError') return; 
             console.warn("showSaveFilePicker failed (likely Firefox/Safari constraint). Falling back to Blob download.", err);
         }
     }
     
-    // 3. Absolute Fallback Download (Safari/Firefox/Mobile)
     downloadBlob(defaultFilename, blob);
 }
 
@@ -130,11 +113,12 @@ export async function exportCompoundVTT(store) {
     }
 
     const zip = new JSZip();
+    const referencedAudio = new Set(); 
 
     const rootManifest = {
         format_version: "2.0.0",
         uvtt_version: "2.0.0",
-        campaign_name: "UVTT v2 Campaign Export",
+        campaign_name: store.catalog.length > 1 ? "Complex Dungeon Export" : "UVTT v2 Export",
         hardware_profile: {
             minimum_pipeline: "webgl2",
             recommended_pipeline: "webgpu",
@@ -143,82 +127,140 @@ export async function exportCompoundVTT(store) {
         map_catalog: []
     };
 
-    const mapsFolder = zip.folder("maps");
+    // THE FIX: DRAFT-08 SPECIFICATION UPGRADE
+    // Initialize empty dictionaries so data can be strictly keyed by Map ID.
+    const keyedGeometry = {};
+    const keyedEntities = {};
 
     for (let i = 0; i < store.catalog.length; i++) {
         const mapDef = store.catalog[i];
         const safeSlug = slugify(mapDef.filename || `level-${i + 1}`);
+        const m = mapDef.manifest;
+
+        if (m.entities?.audio?.zones) {
+            m.entities.audio.zones.forEach(az => {
+                if (az.track) referencedAudio.add(az.track);
+            });
+        }
+
+        const sourceData = mapDef.imageUrl || m.image;
+        let finalImagePath = "";
         
+        if (sourceData) {
+            try {
+                const res = await fetch(sourceData);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const originalBlob = await res.blob();
+
+                let finalBlob = originalBlob;
+                let ext = 'png';
+                if (originalBlob.type === 'image/jpeg') ext = 'jpg';
+                if (originalBlob.type === 'image/webp') ext = 'webp';
+
+                try {
+                    const img = new Image();
+                    const blobUrl = URL.createObjectURL(originalBlob);
+                    
+                    await new Promise((resolve, reject) => {
+                        img.onload = resolve;
+                        img.onerror = reject;
+                        img.src = blobUrl;
+                    });
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth || img.width;
+                    canvas.height = img.naturalHeight || img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    URL.revokeObjectURL(blobUrl);
+
+                    const webpBlob = await new Promise(resolve => canvas.toBlob(resolve, "image/webp", 0.95));
+                    if (webpBlob) {
+                        finalBlob = webpBlob;
+                        ext = 'webp';
+                    }
+                } catch (transcodeErr) {
+                    console.warn(`WebP transcode failed. Falling back to source format.`, transcodeErr);
+                }
+
+                finalImagePath = `assets/maps/${safeSlug}_basemap.${ext}`;
+                zip.file(finalImagePath, finalBlob);
+                
+            } catch (e) {
+                console.error(`Failed to process map image for ${safeSlug}`, e);
+            }
+        }
+
         rootManifest.map_catalog.push({
             id: mapDef.id,
             name: mapDef.filename || `Level ${i + 1}`,
             slug: safeSlug,
-            path: `maps/${safeSlug}/`,
-            z_index: i
+            path: "", 
+            z_index: i,
+            image: finalImagePath
         });
 
-        const levelFolder = mapsFolder.folder(safeSlug);
-        const m = mapDef.manifest;
-
-        const geometryPayload = {
-            format_version: "2.0.0",
-            resolution: m.resolution,
-            geometry: {
-                walls: (m.geometry.walls || []).map(w => ({
-                    id: w.id,
-                    type: w.properties?.type || "standard",
-                    height: w.height, 
-                    path: translatePathToSvg(w.path, w.isBezier),
-                    directional_blocks: w.directional_blocks || { left_to_right: [], right_to_left: [] },
-                    properties: w.properties
-                })),
-                portals: (m.geometry.portals || []).map(p => {
-                    const officialType = p.properties?.type === "secret" ? "secret_door" : (p.properties?.type || "door");
-                    return {
-                        id: p.id,
-                        type: officialType,
-                        sub_type: p.properties?.sub_type || "standard",
-                        state: p.properties?.state || "closed",
-                        height: p.height,
-                        path: translatePathToSvg(p.path, p.isBezier),
-                        properties: p.properties
-                    };
-                }),
-                overhead: (m.geometry.overhead || []).map(o => ({
-                    id: o.id,
-                    type: "roof",
-                    height: o.height,
-                    path: translatePathToSvg(o.path, o.isBezier),
-                    properties: o.properties
-                }))
-            }
+        // Initialize the dictionary keys for this specific map ID
+        keyedGeometry[mapDef.id] = {
+            resolution: m.resolution || { pixels_per_grid: 70 },
+            walls: [],
+            portals: [],
+            overhead: []
         };
-        levelFolder.file("geometry.json", JSON.stringify(geometryPayload, null, 2));
 
-        const entitiesPayload = {
-            format_version: "2.0.0",
-            lights: m.entities.lights || [],
-            landing_zones: m.entities.landing_zones || [],
-            events: (m.entities.events || []).map(e => ({
-                id: e.id,
-                name: e.name || "Trigger Event",
+        keyedEntities[mapDef.id] = {
+            lights: [],
+            landing_zones: [],
+            events: [],
+            emitters: [],
+            props: [],
+            audio: { zones: [] }
+        };
+
+        if (m.geometry) {
+            (m.geometry.walls || []).forEach(w => keyedGeometry[mapDef.id].walls.push({
+                ...w, path: translatePathToSvg(w.path, w.isBezier)
+            }));
+            (m.geometry.portals || []).forEach(p => keyedGeometry[mapDef.id].portals.push({
+                ...p, 
+                type: p.properties?.type === "secret" ? "secret_door" : (p.properties?.type || "door"),
+                path: translatePathToSvg(p.path, p.isBezier)
+            }));
+            (m.geometry.overhead || []).forEach(o => keyedGeometry[mapDef.id].overhead.push({
+                ...o, path: translatePathToSvg(o.path, o.isBezier)
+            }));
+        }
+
+        if (m.entities) {
+            (m.entities.lights || []).forEach(l => keyedEntities[mapDef.id].lights.push({ ...l }));
+            (m.entities.landing_zones || []).forEach(lz => keyedEntities[mapDef.id].landing_zones.push({ ...lz }));
+            (m.entities.events || []).forEach(e => keyedEntities[mapDef.id].events.push({
+                ...e, 
                 type: e.eventType === "Teleport" ? "teleport" : "trigger",
-                trigger_bounds: e.trigger_bounds,
-                destination: buildEventDestination(e, store.catalog, mapDef.id),
-                properties: e.properties
-            })),
-            audio: m.entities.audio || { zones: [] },
-            emitters: m.entities.emitters || [],
-            props: m.entities.props || []
-        };
-        levelFolder.file("entities.json", JSON.stringify(entitiesPayload, null, 2));
+                destination: buildEventDestination(e, store.catalog, mapDef.id)
+            }));
+            (m.entities.audio?.zones || []).forEach(az => keyedEntities[mapDef.id].audio.zones.push({ ...az }));
+            (m.entities.emitters || []).forEach(em => keyedEntities[mapDef.id].emitters.push({ ...em }));
+            (m.entities.props || []).forEach(pr => keyedEntities[mapDef.id].props.push({ ...pr }));
+        }
     }
 
+    zip.file("geometry.json", JSON.stringify(keyedGeometry, null, 2));
+    zip.file("entities.json", JSON.stringify(keyedEntities, null, 2));
     zip.file("manifest.json", JSON.stringify(rootManifest, null, 2));
+
+    if (store.audioBlobs) {
+        for (const trackName of referencedAudio) {
+            if (store.audioBlobs[trackName]) {
+                zip.file(`assets/audio/${trackName}`, store.audioBlobs[trackName]);
+            }
+        }
+    }
 
     try {
         const content = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
-        await saveAsNative(content, "campaign_export.uvtt2z", "UVTT v2 Archive", ".uvtt2z");
+        const finalFilename = store.catalog.length > 1 ? "Complex_Dungeon_Export.uvtt2z" : `${rootManifest.map_catalog[0].slug}.uvtt2z`;
+        await saveAsNative(content, finalFilename, "UVTT v2 Archive", ".uvtt2z");
     } catch (err) {
         console.error("Failed to compile .uvtt2z archive:", err);
         alert("Export failed. Check console for details.");
@@ -234,18 +276,19 @@ export async function exportAssetPackage(assetName, payload, audioBlobs) {
     const zip = new JSZip();
     
     if (payload.image && payload.image.startsWith('data:image')) {
-        const parts = payload.image.split(',');
-        const mime = parts[0].match(/:(.*?);/)[1];
-        const binary = atob(parts[1]);
-        const array = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) array[i] = binary.charCodeAt(i);
-        
-        let ext = 'png';
-        if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
-        if (mime.includes('webp')) ext = 'webp';
-        
-        zip.file(`image.${ext}`, array);
-        payload.image = `image.${ext}`; 
+        try {
+            const res = await fetch(payload.image);
+            const originalBlob = await res.blob();
+            
+            let ext = 'png';
+            if (originalBlob.type === 'image/jpeg') ext = 'jpg';
+            if (originalBlob.type === 'image/webp') ext = 'webp';
+            
+            zip.file(`image.${ext}`, originalBlob);
+            payload.image = `image.${ext}`; 
+        } catch (err) {
+            console.error("Failed to parse asset image:", err);
+        }
     }
     
     if (payload.auto_emits?.audio) {
@@ -279,7 +322,6 @@ export async function importAssetPackage(file) {
         const payload = JSON.parse(await assetFile.async("string"));
         const extractedAudio = {};
         
-        // RAM LEAK FIX: We now generate ObjectURLs instead of converting heavy images to Base64 strings.
         if (payload.image && !payload.image.startsWith('http') && !payload.image.startsWith('data:image') && !payload.image.startsWith('blob:')) {
             const imgFile = zip.file(payload.image);
             if (imgFile) {
@@ -400,45 +442,31 @@ export async function exportSecureVTT(store, isCompound = false) {
         const baseName = isCompound ? 'Compound_Dungeon' : (store.activeMap.filename || 'export');
         const defaultFilename = `${baseName}_Secure_Export.zip`;
 
-        // 1. OPEN NATIVE DIALOG (Prevents memory build-up if user cancels)
         let transferId = null;
         let useFallback = false;
 
         try {
             transferId = await Transport.invoke('StartSaveTransfer', defaultFilename, "Secure ZIP Archive", "*.zip");
-            if (!transferId) return; // Cancelled
+            if (!transferId) return; 
         } catch(err) {
             useFallback = true;
         }
 
         const internalZip = new JSZip();
 
-        const safeBase64ToBlob = (base64, mime) => {
-            const binary = atob(base64);
-            const array = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) array[i] = binary.charCodeAt(i);
-            return new Blob([array], { type: mime });
-        };
-
         const bundleMapImage = async (mapDef, manifestToUpdate) => {
             const sourceData = mapDef.imageUrl || mapDef.manifest.image;
             if (!sourceData) return;
 
             try {
-                let originalBlob;
-                if (sourceData.startsWith('data:image')) {
-                    const parts = sourceData.split(',');
-                    const mime = parts[0].match(/:(.*?);/)[1];
-                    originalBlob = safeBase64ToBlob(parts[1], mime);
-                } else if (sourceData.startsWith('blob:') || sourceData.startsWith('http')) {
-                    const res = await fetch(sourceData);
-                    originalBlob = await res.blob();
-                } else {
-                    originalBlob = safeBase64ToBlob(sourceData, 'image/png');
-                }
+                const res = await fetch(sourceData);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const originalBlob = await res.blob();
 
                 let finalBlob = originalBlob;
                 let ext = 'png';
+                if (originalBlob.type === 'image/jpeg') ext = 'jpg';
+                if (originalBlob.type === 'image/webp') ext = 'webp';
 
                 try {
                     const img = new Image();
@@ -451,25 +479,24 @@ export async function exportSecureVTT(store, isCompound = false) {
                     });
 
                     const canvas = document.createElement('canvas');
-                    canvas.width = img.width;
-                    canvas.height = img.height;
+                    canvas.width = img.naturalWidth || img.width;
+                    canvas.height = img.naturalHeight || img.height;
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0);
                     URL.revokeObjectURL(blobUrl);
 
-                    const webpBlob = await new Promise(resolve => canvas.toBlob(resolve, "image/webp", 0.9));
+                    const webpBlob = await new Promise(resolve => canvas.toBlob(resolve, "image/webp", 0.95));
                     if (webpBlob) {
                         finalBlob = webpBlob;
                         ext = 'webp';
                     }
                 } catch (transcodeErr) {
                     console.warn(`WebP transcode failed. Falling back to source format.`, transcodeErr);
-                    if (originalBlob.type === 'image/jpeg') ext = 'jpg';
                 }
 
                 const filename = `map_${mapDef.id}.${ext}`;
-                internalZip.file(`assets/images/${filename}`, finalBlob);
-                manifestToUpdate.image = `assets/images/${filename}`;
+                internalZip.file(`assets/maps/${filename}`, finalBlob);
+                manifestToUpdate.image = `assets/maps/${filename}`;
 
             } catch (e) {
                 console.error("Failed to bundle image", e);
@@ -514,7 +541,6 @@ export async function exportSecureVTT(store, isCompound = false) {
         deliveryZip.file(`${baseName}.uvtt2z`, encryptedPayload);
         const deliveryBlob = await deliveryZip.generateAsync({ type: "blob" });
         
-        // 2. STREAM OR FALLBACK
         if (transferId) {
             const chunkSize = 1024 * 1024;
             for (let i = 0; i < deliveryBlob.size; i += chunkSize) {
