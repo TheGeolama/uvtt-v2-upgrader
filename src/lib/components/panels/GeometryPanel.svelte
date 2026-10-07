@@ -152,8 +152,23 @@
   <label>
     <span>Directional Blocking (Line-of-Sight):</span>
     <select
-      onchange={(e) =>
-        handlePropChange("wall", "properties.directional_mode", e.target.value)}
+      onchange={(e) => {
+        let left_to_right = ["light", "sight", "movement"];
+        let right_to_left = ["light", "sight", "movement"];
+
+        if (e.target.value === "one_way_lr") {
+          right_to_left = [];
+        } else if (e.target.value === "one_way_rl") {
+          left_to_right = [];
+        }
+
+        handlePropChange("wall", "directional_blocks", {
+          left_to_right,
+          right_to_left,
+        });
+
+        handlePropChange("wall", "properties.directional_mode", e.target.value);
+      }}
     >
       <option
         value="two_way"
